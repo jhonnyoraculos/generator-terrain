@@ -76,10 +76,10 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 
 O preview 3D usa um sistema de LOD dinamico quando ativado. Ele cria versoes reduzidas da malha para distancias maiores da camera, melhorando FPS em terrenos densos.
 
-- LOD 0: malha completa.
-- LOD 1: aproximadamente metade da resolucao por eixo.
-- LOD 2: aproximadamente um quarto da resolucao por eixo.
-- LOD 3: malha distante mais leve.
+- LOD 0: normalmente a malha completa do terreno.
+- LOD 1, LOD 2 e LOD 3: versoes progressivamente mais leves.
+- Cada LOD tem resolucao propria, distancia de entrada, campo de poligonos alvo e contador estimado de vertices/poligonos no painel.
+- O campo `Preview LOD` permite forcar Auto, LOD 0, LOD 1, LOD 2 ou LOD 3 para inspecionar a malha de cada nivel.
 
 Isso afeta apenas a visualizacao no navegador. OBJ, GLB, heightmap e RAW continuam exportando a resolucao configurada do terreno.
 

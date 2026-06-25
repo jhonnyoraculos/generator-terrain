@@ -18,7 +18,14 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { TerrainLodSettings, TerrainParams, TerrainStats, ViewMode } from '../types/terrain';
+import type {
+  TerrainLodLevelSettings,
+  TerrainLodPreviewMode,
+  TerrainLodSettings,
+  TerrainParams,
+  TerrainStats,
+  ViewMode,
+} from '../types/terrain';
 import type { TerrainPreset } from '../types/terrain';
 import type {
   TerrainTextureSettings,
@@ -66,6 +73,14 @@ const viewModes: Array<{ value: ViewMode; label: string }> = [
   { value: 'shaded', label: 'Shaded' },
   { value: 'solid', label: 'Solido' },
   { value: 'wireframe', label: 'Wireframe' },
+];
+
+const lodPreviewModes: Array<{ value: TerrainLodPreviewMode; label: string }> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'lod0', label: 'LOD 0' },
+  { value: 'lod1', label: 'LOD 1' },
+  { value: 'lod2', label: 'LOD 2' },
+  { value: 'lod3', label: 'LOD 3' },
 ];
 
 const textureSlots: TextureLayerKey[] = ['grass', 'dirt', 'rock', 'snow', 'detailNormal'];
@@ -116,6 +131,24 @@ export function ControlPanel({
     value: TerrainLodSettings[K],
   ) => {
     onLodSettingsChange({ ...lodSettings, [key]: value });
+  };
+  const lodPreviewMode = lodSettings.previewMode ?? 'auto';
+  const lodLevels = normalizeLodLevels(lodSettings.levels ?? [], params.resolution);
+  const updateLodLevel = (index: number, patch: Partial<TerrainLodLevelSettings>) => {
+    const nextLevels = lodLevels.map((level, levelIndex) => {
+      if (levelIndex !== index) {
+        return level;
+      }
+
+      return {
+        ...level,
+        ...patch,
+        enabled: levelIndex === 0 ? true : (patch.enabled ?? level.enabled),
+        resolution: clampLodResolution(patch.resolution ?? level.resolution, params.resolution),
+        distance: levelIndex === 0 ? 0 : Math.max(1, Math.round(patch.distance ?? level.distance)),
+      };
+    });
+    onLodSettingsChange({ ...lodSettings, levels: nextLevels });
   };
   const exportDisabled = !stats || generating || Boolean(exporting);
 
@@ -214,45 +247,23 @@ export function ControlPanel({
               checked={lodSettings.enabled}
               onChange={(value) => updateLodSettings('enabled', value)}
             />
-            <SliderField
-              label="LOD perto"
-              min={80}
-              max={900}
-              step={10}
-              value={lodSettings.nearDistance}
-              suffix="u"
-              integer
-              onChange={(value) => updateLodSettings('nearDistance', value)}
+            <SelectField
+              label="Preview LOD"
+              value={lodPreviewMode}
+              options={lodPreviewModes}
+              onChange={(value) => updateLodSettings('previewMode', value)}
             />
-            <SliderField
-              label="LOD medio"
-              min={200}
-              max={1600}
-              step={10}
-              value={lodSettings.midDistance}
-              suffix="u"
-              integer
-              onChange={(value) => updateLodSettings('midDistance', value)}
-            />
-            <SliderField
-              label="LOD longe"
-              min={400}
-              max={2600}
-              step={10}
-              value={lodSettings.farDistance}
-              suffix="u"
-              integer
-              onChange={(value) => updateLodSettings('farDistance', value)}
-            />
-            <SliderField
-              label="Niveis LOD"
-              min={1}
-              max={4}
-              step={1}
-              value={lodSettings.maxLevels}
-              integer
-              onChange={(value) => updateLodSettings('maxLevels', value)}
-            />
+            <div className="lod-level-list">
+              {lodLevels.map((level, index) => (
+                <LodLevelEditor
+                  key={index}
+                  index={index}
+                  level={level}
+                  maxResolution={params.resolution}
+                  onChange={(patch) => updateLodLevel(index, patch)}
+                />
+              ))}
+            </div>
           </Section>
 
           <Section title="Tamanho">
@@ -557,6 +568,125 @@ export function ControlPanel({
       ) : null}
     </aside>
   );
+}
+
+function LodLevelEditor({
+  index,
+  level,
+  maxResolution,
+  onChange,
+}: {
+  index: number;
+  level: TerrainLodLevelSettings;
+  maxResolution: number;
+  onChange: (patch: Partial<TerrainLodLevelSettings>) => void;
+}) {
+  const resolution = clampLodResolution(level.resolution, maxResolution);
+  const stats = estimateLodStats(resolution);
+  const maxStats = estimateLodStats(maxResolution);
+
+  return (
+    <div className={level.enabled ? 'lod-level-editor' : 'lod-level-editor muted'}>
+      <div className="lod-level-header">
+        <strong>LOD {index}</strong>
+        <span>
+          {stats.vertices.toLocaleString('pt-BR')} v /{' '}
+          {stats.triangles.toLocaleString('pt-BR')} pol
+        </span>
+      </div>
+      {index > 0 ? (
+        <ToggleField
+          label="Ativo"
+          checked={level.enabled}
+          onChange={(value) => onChange({ enabled: value })}
+        />
+      ) : null}
+      <SliderField
+        label="Resolucao"
+        min={3}
+        max={Math.max(3, maxResolution)}
+        step={1}
+        value={resolution}
+        integer
+        onChange={(value) => onChange({ resolution: value })}
+      />
+      <label className="field">
+        <span className="field__label">
+          Poligonos alvo
+          <output>{stats.triangles.toLocaleString('pt-BR')}</output>
+        </span>
+        <input
+          className="number-input"
+          type="number"
+          min={8}
+          max={maxStats.triangles}
+          step={2}
+          value={stats.triangles}
+          onChange={(event) =>
+            onChange({
+              resolution: estimateResolutionFromTriangles(Number(event.target.value), maxResolution),
+            })
+          }
+        />
+      </label>
+      {index > 0 ? (
+        <SliderField
+          label="Distancia"
+          min={40}
+          max={3000}
+          step={10}
+          value={level.distance}
+          suffix="u"
+          integer
+          onChange={(value) => onChange({ distance: value })}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function normalizeLodLevels(
+  levels: TerrainLodLevelSettings[],
+  terrainResolution: number,
+): TerrainLodLevelSettings[] {
+  return [0, 1, 2, 3].map((index) => {
+    const fallback = createFallbackLodLevel(index, terrainResolution);
+    const level = levels[index] ?? fallback;
+    return {
+      enabled: index === 0 ? true : level.enabled,
+      resolution: clampLodResolution(level.resolution, terrainResolution),
+      distance: index === 0 ? 0 : Math.max(1, Math.round(level.distance)),
+    };
+  });
+}
+
+function createFallbackLodLevel(index: number, terrainResolution: number): TerrainLodLevelSettings {
+  const dividers = [1, 2, 4, 8];
+  const distances = [0, 360, 760, 1250];
+  const safeResolution = Math.max(3, Math.round(terrainResolution));
+  const divider = dividers[index] ?? 8;
+  return {
+    enabled: true,
+    resolution: clampLodResolution(Math.round((safeResolution - 1) / divider) + 1, safeResolution),
+    distance: distances[index] ?? 1250,
+  };
+}
+
+function estimateLodStats(resolution: number) {
+  const safeResolution = Math.max(3, Math.round(resolution));
+  return {
+    vertices: safeResolution * safeResolution,
+    triangles: (safeResolution - 1) * (safeResolution - 1) * 2,
+  };
+}
+
+function estimateResolutionFromTriangles(triangles: number, terrainResolution: number) {
+  const safeTriangles = Number.isFinite(triangles) ? Math.max(8, triangles) : 8;
+  return clampLodResolution(Math.round(Math.sqrt(safeTriangles / 2) + 1), terrainResolution);
+}
+
+function clampLodResolution(resolution: number, terrainResolution: number) {
+  return Math.max(3, Math.min(Math.round(terrainResolution), Math.round(resolution)));
 }
 
 function TextureDrop({

@@ -15,6 +15,7 @@ import { DEFAULT_TERRAIN_PARAMS, TERRAIN_PRESETS } from './presets/presets';
 import { generateTerrain, sanitizeTerrainParams } from './terrain/generator';
 import type {
   TerrainData,
+  TerrainLodLevelSettings,
   TerrainLodSettings,
   TerrainParams,
   TerrainWorkerResponse,
@@ -38,13 +39,9 @@ const DEFAULT_TEXTURE_SETTINGS: TerrainTextureSettings = {
   macroVariation: 0.26,
 };
 
-const DEFAULT_LOD_SETTINGS: TerrainLodSettings = {
-  enabled: true,
-  nearDistance: 360,
-  midDistance: 760,
-  farDistance: 1250,
-  maxLevels: 4,
-};
+const DEFAULT_LOD_SETTINGS: TerrainLodSettings = createDefaultLodSettings(
+  DEFAULT_TERRAIN_PARAMS.resolution,
+);
 
 export function App() {
   const [params, setParams] = useState<TerrainParams>(DEFAULT_TERRAIN_PARAMS);
@@ -167,6 +164,11 @@ export function App() {
 
   const handleParamsChange = (nextParams: TerrainParams) => {
     setSelectedPresetId('');
+    if (nextParams.resolution !== params.resolution) {
+      setLodSettings((current) =>
+        adaptLodSettingsToResolution(current, params.resolution, nextParams.resolution),
+      );
+    }
     setParams(nextParams);
   };
 
@@ -177,6 +179,7 @@ export function App() {
     }
     setSelectedPresetId(id);
     setParams({ ...preset.params });
+    setLodSettings(createDefaultLodSettings(preset.params.resolution));
   };
 
   const handleRandomSeed = () => {
@@ -189,7 +192,7 @@ export function App() {
     setParams(DEFAULT_TERRAIN_PARAMS);
     setViewMode('shaded');
     setShowGrid(true);
-    setLodSettings(DEFAULT_LOD_SETTINGS);
+    setLodSettings(createDefaultLodSettings(DEFAULT_TERRAIN_PARAMS.resolution));
   };
 
   const handleTextureFile = (slot: TextureLayerKey, file: File | null) => {
@@ -342,4 +345,56 @@ function createRandomSeed() {
 function isUnityFriendly(resolution: number) {
   const value = Math.round(resolution) - 1;
   return value > 0 && (value & (value - 1)) === 0;
+}
+
+function createDefaultLodSettings(resolution: number): TerrainLodSettings {
+  return {
+    enabled: true,
+    previewMode: 'auto',
+    levels: createDefaultLodLevels(resolution),
+  };
+}
+
+function createDefaultLodLevels(resolution: number): TerrainLodLevelSettings[] {
+  const safeResolution = Math.max(3, Math.round(resolution));
+  const distances = [0, 360, 760, 1250];
+  return [1, 2, 4, 8].map((divider, index) => ({
+    enabled: true,
+    resolution: clampLodResolution(Math.round((safeResolution - 1) / divider) + 1, safeResolution),
+    distance: distances[index],
+  }));
+}
+
+function adaptLodSettingsToResolution(
+  current: TerrainLodSettings,
+  previousResolution: number,
+  nextResolution: number,
+): TerrainLodSettings {
+  const previousDefaults = createDefaultLodLevels(previousResolution);
+  const nextDefaults = createDefaultLodLevels(nextResolution);
+  const currentLevels = current.levels ?? [];
+  const nextLevels = nextDefaults.map((fallback, index) => {
+    const currentLevel = currentLevels[index] ?? fallback;
+    const currentResolution = Math.round(currentLevel.resolution);
+    const followsDefault =
+      currentResolution === previousDefaults[index]?.resolution ||
+      (index === 0 && currentResolution >= previousResolution);
+
+    return {
+      enabled: index === 0 ? true : currentLevel.enabled,
+      resolution: followsDefault
+        ? fallback.resolution
+        : clampLodResolution(currentResolution, nextResolution),
+      distance: index === 0 ? 0 : currentLevel.distance,
+    };
+  });
+
+  return {
+    ...current,
+    levels: nextLevels,
+  };
+}
+
+function clampLodResolution(resolution: number, terrainResolution: number) {
+  return Math.max(3, Math.min(Math.round(terrainResolution), Math.round(resolution)));
 }

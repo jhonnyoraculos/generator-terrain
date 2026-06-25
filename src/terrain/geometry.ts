@@ -7,6 +7,12 @@ export interface TerrainGeometryOptions {
   verticalExaggeration: number;
   includeVertexColors: boolean;
   lodStep?: number;
+  lodResolution?: number;
+}
+
+interface TerrainSamplingOptions {
+  lodStep?: number;
+  lodResolution?: number;
 }
 
 const COLOR_LOW = [0.12, 0.32, 0.19] as const;
@@ -18,7 +24,10 @@ const COLOR_SNOW = [0.9, 0.92, 0.88] as const;
 
 export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeometryOptions) {
   const { width, depth, resolution, heights } = terrain;
-  const coords = createSampleCoordinates(resolution, options.lodStep ?? 1);
+  const coords = createSampleCoordinates(resolution, {
+    lodStep: options.lodStep,
+    lodResolution: options.lodResolution,
+  });
   const lodResolution = coords.length;
   const vertexCount = lodResolution * lodResolution;
   const positions = new Float32Array(vertexCount * 3);
@@ -92,8 +101,11 @@ export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeom
   return geometry;
 }
 
-export function estimateLodGeometryStats(resolution: number, lodStep: number) {
-  const lodResolution = createSampleCoordinates(resolution, lodStep).length;
+export function estimateLodGeometryStats(
+  resolution: number,
+  sampling: TerrainSamplingOptions = {},
+) {
+  const lodResolution = createSampleCoordinates(resolution, sampling).length;
   return {
     lodResolution,
     vertices: lodResolution * lodResolution,
@@ -129,8 +141,12 @@ function mix(
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 }
 
-function createSampleCoordinates(resolution: number, step: number) {
-  const safeStep = Math.max(1, Math.round(step));
+function createSampleCoordinates(resolution: number, sampling: TerrainSamplingOptions) {
+  if (sampling.lodResolution !== undefined) {
+    return createTargetResolutionCoordinates(resolution, sampling.lodResolution);
+  }
+
+  const safeStep = Math.max(1, Math.round(sampling.lodStep ?? 1));
   const coords: number[] = [];
   for (let index = 0; index < resolution; index += safeStep) {
     coords.push(index);
@@ -139,5 +155,26 @@ function createSampleCoordinates(resolution: number, step: number) {
   if (coords[coords.length - 1] !== last) {
     coords.push(last);
   }
+  return coords;
+}
+
+function createTargetResolutionCoordinates(resolution: number, targetResolution: number) {
+  const safeResolution = Math.max(2, Math.round(resolution));
+  const safeTarget = Math.max(2, Math.min(safeResolution, Math.round(targetResolution)));
+  const last = safeResolution - 1;
+  const coords: number[] = [];
+  let previous = -1;
+
+  for (let index = 0; index < safeTarget; index += 1) {
+    const raw = Math.round((index / (safeTarget - 1)) * last);
+    const remaining = safeTarget - index - 1;
+    const maxAllowed = last - remaining;
+    const coordinate = Math.max(previous + 1, Math.min(raw, maxAllowed));
+    coords.push(coordinate);
+    previous = coordinate;
+  }
+
+  coords[0] = 0;
+  coords[coords.length - 1] = last;
   return coords;
 }

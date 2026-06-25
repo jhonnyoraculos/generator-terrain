@@ -313,6 +313,43 @@ input[type="range"] {
   background: rgb(145 215 101 / 0.13);
 }
 
+.lod-level-list {
+  display: grid;
+  gap: 0.58rem;
+}
+
+.lod-level-editor {
+  display: grid;
+  gap: 0.62rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11140f;
+  padding: 0.68rem;
+}
+
+.lod-level-editor.muted {
+  opacity: 0.62;
+}
+
+.lod-level-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.lod-level-header strong {
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+}
+
+.lod-level-header span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .stats-list {
   display: grid;
   gap: 0.45rem;

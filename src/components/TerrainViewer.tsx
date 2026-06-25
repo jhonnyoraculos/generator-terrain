@@ -8,7 +8,13 @@ import {
 import type { MutableRefObject } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { TerrainData, TerrainLodSettings, ViewMode } from '../types/terrain';
+import type {
+  TerrainData,
+  TerrainLodLevelSettings,
+  TerrainLodPreviewMode,
+  TerrainLodSettings,
+  ViewMode,
+} from '../types/terrain';
 import type { TerrainTextureSettings, TerrainTextureSet } from '../types/textures';
 import { createTerrainGeometry, estimateLodGeometryStats } from '../terrain/geometry';
 import {
@@ -46,11 +52,17 @@ interface PerformanceSnapshot {
 
 interface LodLevelInfo {
   level: number;
-  step: number;
   distance: number;
   vertices: number;
   triangles: number;
   resolution: number;
+}
+
+interface NormalizedLodLevel {
+  level: number;
+  enabled: boolean;
+  resolution: number;
+  distance: number;
 }
 
 export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>(
@@ -171,14 +183,15 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
 
         const elapsed = now - lastSampleTime;
         if (elapsed >= 500) {
-          const activeLod = getActiveLodLevel(terrainObjectRef.current);
-          const activeLevelInfo = lodLevelsRef.current[activeLod] ?? lodLevelsRef.current[0];
+          const activeLodIndex = getActiveLodLevelIndex(terrainObjectRef.current);
+          const activeLevelInfo =
+            lodLevelsRef.current[activeLodIndex] ?? lodLevelsRef.current[0];
           setPerformanceSnapshot({
             fps: Math.round((frameCounter * 1000) / elapsed),
             frameMs: Number(frameMs.toFixed(1)),
             drawCalls: renderer.info.render.calls,
             rendererTriangles: renderer.info.render.triangles,
-            activeLod,
+            activeLod: activeLevelInfo?.level ?? 0,
             visibleVertices: activeLevelInfo?.vertices ?? 0,
             visibleTriangles: activeLevelInfo?.triangles ?? 0,
           });
@@ -371,9 +384,7 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
             </div>
             <div>
               <dt>LOD ativo</dt>
-              <dd>
-                {lodSettings.enabled && terrain ? `LOD ${performanceSnapshot.activeLod}` : 'Full'}
-              </dd>
+              <dd>{getLodLabel(lodSettings, terrain, performanceSnapshot.activeLod)}</dd>
             </div>
             <div>
               <dt>LOD vertices</dt>
@@ -419,25 +430,44 @@ function createTerrainObject({
 }) {
   const includeVertexColors = viewMode === 'shaded' && heightColors;
   const sharedMaterial = createMaterial(viewMode, heightColors);
-  const steps = lodSettings.enabled
-    ? [1, 2, 4, 8].slice(0, Math.max(1, Math.min(4, Math.round(lodSettings.maxLevels))))
-    : [1];
-  const nearDistance = Math.max(1, lodSettings.nearDistance);
-  const midDistance = Math.max(nearDistance + 1, lodSettings.midDistance);
-  const farDistance = Math.max(midDistance + 1, lodSettings.farDistance);
-  const distances = [0, nearDistance, midDistance, farDistance];
+  const previewMode = lodSettings.previewMode ?? 'auto';
+  const normalizedLevels = normalizeLodLevels(lodSettings.levels ?? [], terrain.resolution);
+  const previewLevel = getPreviewLodLevel(previewMode);
   const meshes: THREE.Mesh[] = [];
   const levels: LodLevelInfo[] = [];
 
-  if (steps.length === 1) {
+  if (previewLevel !== null || !lodSettings.enabled) {
+    const forcedLevel =
+      previewLevel === null
+        ? createFullResolutionLodLevel(terrain.resolution)
+        : normalizedLevels[previewLevel] ?? normalizedLevels[0];
     const mesh = createLodMesh(terrain, {
-      step: 1,
+      lodResolution: forcedLevel.resolution,
       material: sharedMaterial,
       includeVertexColors,
       verticalExaggeration,
     });
+    mesh.name = `TerrainForge_LOD${forcedLevel.level}_Preview`;
     meshes.push(mesh);
-    levels.push(createLodLevelInfo(terrain.resolution, 0, 1, 0));
+    levels.push(createLodLevelInfo(terrain.resolution, forcedLevel));
+    return {
+      object: mesh,
+      meshes,
+      levels,
+    };
+  }
+
+  const activeLevels = normalizedLevels.filter((level) => level.enabled);
+  if (activeLevels.length === 1) {
+    const mesh = createLodMesh(terrain, {
+      lodResolution: activeLevels[0].resolution,
+      material: sharedMaterial,
+      includeVertexColors,
+      verticalExaggeration,
+    });
+    mesh.name = `TerrainForge_LOD${activeLevels[0].level}`;
+    meshes.push(mesh);
+    levels.push(createLodLevelInfo(terrain.resolution, activeLevels[0]));
     return {
       object: mesh,
       meshes,
@@ -447,17 +477,17 @@ function createTerrainObject({
 
   const lod = new THREE.LOD();
   lod.name = 'TerrainForge_LOD';
-  steps.forEach((step, index) => {
+  activeLevels.forEach((level) => {
     const mesh = createLodMesh(terrain, {
-      step,
+      lodResolution: level.resolution,
       material: sharedMaterial,
       includeVertexColors,
       verticalExaggeration,
     });
-    mesh.name = `TerrainForge_LOD${index}`;
+    mesh.name = `TerrainForge_LOD${level.level}`;
     meshes.push(mesh);
-    levels.push(createLodLevelInfo(terrain.resolution, index, step, distances[index] ?? 0));
-    lod.addLevel(mesh, distances[index] ?? 0);
+    levels.push(createLodLevelInfo(terrain.resolution, level));
+    lod.addLevel(mesh, level.distance);
   });
 
   return {
@@ -470,12 +500,12 @@ function createTerrainObject({
 function createLodMesh(
   terrain: TerrainData,
   {
-    step,
+    lodResolution,
     material,
     includeVertexColors,
     verticalExaggeration,
   }: {
-    step: number;
+    lodResolution: number;
     material: THREE.Material;
     includeVertexColors: boolean;
     verticalExaggeration: number;
@@ -484,7 +514,7 @@ function createLodMesh(
   const geometry = createTerrainGeometry(terrain, {
     verticalExaggeration,
     includeVertexColors,
-    lodStep: step,
+    lodResolution,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
@@ -494,26 +524,101 @@ function createLodMesh(
 
 function createLodLevelInfo(
   resolution: number,
-  level: number,
-  step: number,
-  distance: number,
+  level: NormalizedLodLevel,
 ): LodLevelInfo {
-  const stats = estimateLodGeometryStats(resolution, step);
+  const stats = estimateLodGeometryStats(resolution, { lodResolution: level.resolution });
   return {
-    level,
-    step,
-    distance,
+    level: level.level,
+    distance: level.distance,
     vertices: stats.vertices,
     triangles: stats.triangles,
     resolution: stats.lodResolution,
   };
 }
 
-function getActiveLodLevel(object: THREE.Object3D | null) {
+function getActiveLodLevelIndex(object: THREE.Object3D | null) {
   if (object instanceof THREE.LOD) {
     return object.getCurrentLevel();
   }
   return 0;
+}
+
+function normalizeLodLevels(
+  levels: TerrainLodLevelSettings[],
+  terrainResolution: number,
+): NormalizedLodLevel[] {
+  let previousDistance = 0;
+  return [0, 1, 2, 3].map((levelIndex) => {
+    const fallback = createDefaultNormalizedLodLevel(levelIndex, terrainResolution);
+    const level = levels[levelIndex] ?? fallback;
+    const distance =
+      levelIndex === 0
+        ? 0
+        : Math.max(previousDistance + 1, Math.round(level.distance || fallback.distance));
+    previousDistance = distance;
+
+    return {
+      level: levelIndex,
+      enabled: levelIndex === 0 ? true : level.enabled,
+      resolution: clampLodResolution(level.resolution, terrainResolution),
+      distance,
+    };
+  });
+}
+
+function createDefaultNormalizedLodLevel(
+  level: number,
+  terrainResolution: number,
+): NormalizedLodLevel {
+  const distances = [0, 360, 760, 1250];
+  const dividers = [1, 2, 4, 8];
+  const safeResolution = Math.max(3, Math.round(terrainResolution));
+  return {
+    level,
+    enabled: true,
+    resolution: clampLodResolution(
+      Math.round((safeResolution - 1) / (dividers[level] ?? 8)) + 1,
+      safeResolution,
+    ),
+    distance: distances[level] ?? 1250,
+  };
+}
+
+function createFullResolutionLodLevel(terrainResolution: number): NormalizedLodLevel {
+  return {
+    level: 0,
+    enabled: true,
+    resolution: Math.max(3, Math.round(terrainResolution)),
+    distance: 0,
+  };
+}
+
+function clampLodResolution(resolution: number, terrainResolution: number) {
+  return Math.max(3, Math.min(Math.round(terrainResolution), Math.round(resolution)));
+}
+
+function getPreviewLodLevel(previewMode: TerrainLodPreviewMode) {
+  if (previewMode === 'auto') {
+    return null;
+  }
+  return Number(previewMode.replace('lod', ''));
+}
+
+function getLodLabel(
+  lodSettings: TerrainLodSettings,
+  terrain: TerrainData | null,
+  activeLod: number,
+) {
+  if (!terrain) {
+    return '-';
+  }
+  if ((lodSettings.previewMode ?? 'auto') !== 'auto') {
+    return `Preview LOD ${activeLod}`;
+  }
+  if (!lodSettings.enabled) {
+    return 'Full';
+  }
+  return `Auto LOD ${activeLod}`;
 }
 
 function createMaterial(viewMode: ViewMode, heightColors: boolean) {

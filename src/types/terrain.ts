@@ -30,12 +30,18 @@ export interface TerrainStats {
   unityFriendlyResolution: boolean;
 }
 
+export type TerrainLodPreviewMode = 'auto' | 'lod0' | 'lod1' | 'lod2' | 'lod3';
+
+export interface TerrainLodLevelSettings {
+  enabled: boolean;
+  resolution: number;
+  distance: number;
+}
+
 export interface TerrainLodSettings {
   enabled: boolean;
-  nearDistance: number;
-  midDistance: number;
-  farDistance: number;
-  maxLevels: number;
+  previewMode: TerrainLodPreviewMode;
+  levels: TerrainLodLevelSettings[];
 }
 
 export interface TerrainData {
