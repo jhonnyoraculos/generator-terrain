@@ -95,6 +95,8 @@ A aba `Texturas` permite carregar imagens locais para:
 
 O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo usa o UV `0..1` da propria malha, entra no ZIP e tambem pode ser incorporado no GLB.
 
+No preview, o normal map geral do terreno e aplicado automaticamente no material. A aba `Texturas` tambem permite ajustar a forca do normal do terreno, a forca do normal de detalhe e a variacao macro usada para quebrar repeticao visual.
+
 O ZIP tambem inclui `terrain.mtl`, que referencia:
 
 - `terrain_texture.png` como textura difusa.

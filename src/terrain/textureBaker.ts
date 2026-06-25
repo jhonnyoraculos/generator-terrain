@@ -83,6 +83,30 @@ export async function loadDetailNormalTexture(
   return texture;
 }
 
+export async function createPreviewNormalTexture(
+  terrain: TerrainData,
+  textures: TerrainTextureSet,
+  settings: TerrainTextureSettings,
+  verticalExaggeration: number,
+) {
+  if (!settings.terrainNormalEnabled && !textures.detailNormal) {
+    return null;
+  }
+
+  const canvas = await createPreviewNormalCanvas(
+    terrain,
+    textures,
+    settings,
+    verticalExaggeration,
+  );
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 async function createBakedTerrainTextureCanvas(
   terrain: TerrainData,
   textures: TerrainTextureSet,
@@ -126,16 +150,28 @@ async function createBakedTerrainTextureCanvas(
       const sampledDirt = samplePreparedTexture(dirt, u, v, repeat);
       const sampledRock = samplePreparedTexture(rock, u, v, repeat);
       const sampledSnow = samplePreparedTexture(snow, u, v, repeat);
-      const textured = mixFour(sampledGrass, sampledDirt, sampledRock, sampledSnow, weights);
+      const textured = applyTerrainColorVariation(
+        mixFour(sampledGrass, sampledDirt, sampledRock, sampledSnow, weights),
+        u,
+        v,
+        height01,
+        slope,
+        settings.macroVariation,
+      );
       const heightColor = getHeightColor(height01, slope).map((value) => value * 255) as [
         number,
         number,
         number,
       ];
+      const textureInfluence = clamp(
+        settings.blendStrength * (0.55 + weights.rock * 0.25 + weights.dirt * 0.1),
+        0,
+        1,
+      );
       const finalColor = [
-        lerp(heightColor[0], textured[0], settings.blendStrength),
-        lerp(heightColor[1], textured[1], settings.blendStrength),
-        lerp(heightColor[2], textured[2], settings.blendStrength),
+        lerp(heightColor[0], textured[0], textureInfluence),
+        lerp(heightColor[1], textured[1], textureInfluence),
+        lerp(heightColor[2], textured[2], textureInfluence),
       ];
 
       const offset = (y * size + x) * 4;
@@ -151,14 +187,18 @@ async function createBakedTerrainTextureCanvas(
 }
 
 function getTextureWeights(height: number, slope: number) {
-  const snow = smoothstep(0.78, 0.94, height) * (1 - smoothstep(0.4, 0.72, slope) * 0.35);
+  const steep = smoothstep(0.26, 0.62, slope);
+  const snow = smoothstep(0.82, 0.96, height) * (1 - steep * 0.45);
   const rock =
-    smoothstep(0.42, 0.82, height) * 0.75 +
-    smoothstep(0.18, 0.56, slope) * (1 - snow * 0.3);
+    smoothstep(0.55, 0.9, height) * 0.42 +
+    steep * (0.55 + smoothstep(0.42, 0.82, height) * 0.3);
   const dirt =
-    smoothstep(0.08, 0.28, height) * (1 - smoothstep(0.58, 0.86, height)) * 0.95 +
-    smoothstep(0.18, 0.42, slope) * 0.35;
-  const grass = Math.max(0.08, 1 - snow * 1.2 - rock * 0.55 - dirt * 0.25);
+    smoothstep(0.06, 0.28, height) *
+      (1 - smoothstep(0.58, 0.86, height)) *
+      (0.72 + steep * 0.22);
+  const grass =
+    (1 - smoothstep(0.46, 0.82, height)) * (1 - steep * 0.52) +
+    smoothstep(0.08, 0.24, height) * 0.35;
   const total = grass + dirt + rock + snow || 1;
 
   return {
@@ -167,6 +207,67 @@ function getTextureWeights(height: number, slope: number) {
     rock: rock / total,
     snow: snow / total,
   };
+}
+
+async function createPreviewNormalCanvas(
+  terrain: TerrainData,
+  textures: TerrainTextureSet,
+  settings: TerrainTextureSettings,
+  verticalExaggeration: number,
+) {
+  const size = Math.max(128, Math.min(1024, Math.round(settings.bakeResolution)));
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) {
+    throw new Error('Canvas 2D indisponivel para gerar normal map de preview.');
+  }
+
+  const detailNormal = textures.detailNormal
+    ? await prepareTexture(textures.detailNormal, [128, 128, 255])
+    : null;
+  const image = context.createImageData(size, size);
+  const repeat = Math.max(1, settings.repeat);
+  const terrainStrength = settings.terrainNormalEnabled
+    ? clamp(settings.terrainNormalStrength, 0, 2)
+    : 0;
+  const detailStrength = detailNormal ? clamp(settings.detailNormalStrength, 0, 2) : 0;
+
+  for (let y = 0; y < size; y += 1) {
+    const v = y / Math.max(1, size - 1);
+    const row = Math.round(v * (terrain.resolution - 1));
+
+    for (let x = 0; x < size; x += 1) {
+      const u = x / Math.max(1, size - 1);
+      const col = Math.round(u * (terrain.resolution - 1));
+      const terrainNormal = computeTerrainNormal(terrain, row, col, verticalExaggeration);
+      let nx = terrainNormal.x * terrainStrength;
+      let ny = terrainNormal.z * terrainStrength;
+      let nz = Math.max(0.08, terrainNormal.y);
+
+      if (detailNormal && detailStrength > 0) {
+        const detail = samplePreparedTexture(detailNormal, u, v, repeat);
+        nx += ((detail[0] / 255) * 2 - 1) * detailStrength;
+        ny += ((detail[1] / 255) * 2 - 1) * detailStrength;
+        nz += ((detail[2] / 255) * 2 - 1) * detailStrength * 0.35;
+      }
+
+      const length = Math.hypot(nx, ny, nz) || 1;
+      nx /= length;
+      ny /= length;
+      nz /= length;
+
+      const offset = (y * size + x) * 4;
+      image.data[offset] = Math.round((nx * 0.5 + 0.5) * 255);
+      image.data[offset + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+      image.data[offset + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+      image.data[offset + 3] = 255;
+    }
+  }
+
+  context.putImageData(image, 0, 0);
+  return canvas;
 }
 
 async function prepareTexture(
@@ -217,8 +318,30 @@ function createSolidTexture(color: [number, number, number]): PreparedTexture {
 function samplePreparedTexture(texture: PreparedTexture, u: number, v: number, repeat: number) {
   const wrappedU = wrap(u * repeat);
   const wrappedV = wrap(v * repeat);
-  const x = Math.floor(wrappedU * texture.width) % texture.width;
-  const y = Math.floor(wrappedV * texture.height) % texture.height;
+  const x = wrappedU * texture.width - 0.5;
+  const y = wrappedV * texture.height - 0.5;
+  const x0 = positiveModulo(Math.floor(x), texture.width);
+  const y0 = positiveModulo(Math.floor(y), texture.height);
+  const x1 = (x0 + 1) % texture.width;
+  const y1 = (y0 + 1) % texture.height;
+  const tx = x - Math.floor(x);
+  const ty = y - Math.floor(y);
+  const c00 = getPixel(texture, x0, y0);
+  const c10 = getPixel(texture, x1, y0);
+  const c01 = getPixel(texture, x0, y1);
+  const c11 = getPixel(texture, x1, y1);
+  return [
+    bilerp(c00[0], c10[0], c01[0], c11[0], tx, ty),
+    bilerp(c00[1], c10[1], c01[1], c11[1], tx, ty),
+    bilerp(c00[2], c10[2], c01[2], c11[2], tx, ty),
+  ] as [
+    number,
+    number,
+    number,
+  ];
+}
+
+function getPixel(texture: PreparedTexture, x: number, y: number) {
   const offset = (y * texture.width + x) * 4;
   return [texture.data[offset], texture.data[offset + 1], texture.data[offset + 2]] as [
     number,
@@ -243,4 +366,68 @@ function mixFour(
 
 function wrap(value: number) {
   return value - Math.floor(value);
+}
+
+function positiveModulo(value: number, divisor: number) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function bilerp(
+  c00: number,
+  c10: number,
+  c01: number,
+  c11: number,
+  tx: number,
+  ty: number,
+) {
+  return lerp(lerp(c00, c10, tx), lerp(c01, c11, tx), ty);
+}
+
+function applyTerrainColorVariation(
+  color: [number, number, number],
+  u: number,
+  v: number,
+  height: number,
+  slope: number,
+  strength: number,
+) {
+  const safeStrength = clamp(strength, 0, 1);
+  if (safeStrength <= 0) {
+    return color;
+  }
+
+  const macro =
+    valueNoise(u * 7.5 + 13.1, v * 7.5 - 2.7) * 0.55 +
+    valueNoise(u * 19.0 - 4.5, v * 19.0 + 8.3) * 0.3 +
+    valueNoise(u * 43.0 + 1.2, v * 43.0 - 9.1) * 0.15;
+  const coolWarm = valueNoise(u * 5.0 - 21.0, v * 5.0 + 3.0) - 0.5;
+  const shade = 1 + (macro - 0.5) * safeStrength * 0.38 - slope * safeStrength * 0.08;
+  const greenPush = (1 - height) * (1 - slope) * safeStrength * 16;
+  const rockPush = slope * safeStrength * 10;
+
+  return [
+    clamp(color[0] * shade + coolWarm * 5 + rockPush, 0, 255),
+    clamp(color[1] * shade + greenPush - rockPush * 0.2, 0, 255),
+    clamp(color[2] * shade - coolWarm * 4, 0, 255),
+  ] as [number, number, number];
+}
+
+function valueNoise(x: number, y: number) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy);
+  const b = hash2(ix + 1, iy);
+  const c = hash2(ix, iy + 1);
+  const d = hash2(ix + 1, iy + 1);
+  return bilerp(a, b, c, d, sx, sy);
+}
+
+function hash2(x: number, y: number) {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
 }

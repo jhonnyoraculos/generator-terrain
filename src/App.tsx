@@ -32,6 +32,10 @@ const DEFAULT_TEXTURE_SETTINGS: TerrainTextureSettings = {
   blendStrength: 0.82,
   repeat: 9,
   bakeResolution: 1024,
+  terrainNormalEnabled: true,
+  terrainNormalStrength: 0.72,
+  detailNormalStrength: 0.35,
+  macroVariation: 0.26,
 };
 
 const DEFAULT_LOD_SETTINGS: TerrainLodSettings = {

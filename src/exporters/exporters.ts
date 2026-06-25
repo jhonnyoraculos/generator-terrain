@@ -8,8 +8,8 @@ import { computeTerrainNormal } from '../terrain/normals';
 import {
   createBakedTerrainTexture,
   createBakedTerrainTextureBlob,
+  createPreviewNormalTexture,
   hasTerrainTextures,
-  loadDetailNormalTexture,
 } from '../terrain/textureBaker';
 
 interface ExportSettings {
@@ -24,6 +24,10 @@ const DEFAULT_BAKE_SETTINGS: TerrainTextureSettings = {
   blendStrength: 0.82,
   repeat: 9,
   bakeResolution: 1024,
+  terrainNormalEnabled: true,
+  terrainNormalStrength: 0.72,
+  detailNormalStrength: 0.35,
+  macroVariation: 0.26,
 };
 
 export function downloadBlob(blob: Blob, filename: string) {
@@ -201,15 +205,17 @@ export async function createGLB(terrain: TerrainData, settings: ExportSettings) 
           settings.verticalExaggeration,
         )
       : null;
-  const normalMap =
-    useTextures
-      ? await loadDetailNormalTexture(textureSet, textureSettings.repeat).catch(() => null)
-      : null;
+  const normalMap = await createPreviewNormalTexture(
+    terrain,
+    textureSet,
+    textureSettings,
+    settings.verticalExaggeration,
+  ).catch(() => null);
   const material = new THREE.MeshStandardMaterial({
     color: bakedTexture || settings.heightColors ? 0xffffff : 0x8a8d84,
     map: bakedTexture,
     normalMap,
-    normalScale: normalMap ? new THREE.Vector2(0.72, 0.72) : undefined,
+    normalScale: normalMap ? new THREE.Vector2(1, 1) : undefined,
     roughness: 0.92,
     metalness: 0,
     vertexColors: !bakedTexture && settings.heightColors,

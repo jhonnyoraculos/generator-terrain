@@ -13,8 +13,8 @@ import type { TerrainTextureSettings, TerrainTextureSet } from '../types/texture
 import { createTerrainGeometry, estimateLodGeometryStats } from '../terrain/geometry';
 import {
   createBakedTerrainTexture,
+  createPreviewNormalTexture,
   hasTerrainTextures,
-  loadDetailNormalTexture,
 } from '../terrain/textureBaker';
 
 export interface TerrainViewerHandle {
@@ -613,18 +613,23 @@ async function applyUploadedTextureMaterial({
 }) {
   const shouldUseTexture =
     viewMode === 'shaded' &&
-    textureSettings.enabled &&
-    (hasTerrainTextures(textureSet) || Boolean(textureSet.detailNormal));
+    ((textureSettings.enabled && hasTerrainTextures(textureSet)) ||
+      textureSettings.terrainNormalEnabled ||
+      Boolean(textureSet.detailNormal));
 
   if (!shouldUseTexture) {
     return;
   }
 
+  const shouldBakeDiffuse = textureSettings.enabled && hasTerrainTextures(textureSet);
+  const shouldUseNormal = textureSettings.terrainNormalEnabled || Boolean(textureSet.detailNormal);
   const [bakedTexture, normalMap] = await Promise.all([
-    hasTerrainTextures(textureSet)
+    shouldBakeDiffuse
       ? createBakedTerrainTexture(terrain, textureSet, textureSettings, verticalExaggeration).catch(() => null)
       : Promise.resolve(null),
-    loadDetailNormalTexture(textureSet, textureSettings.repeat).catch(() => null),
+    shouldUseNormal
+      ? createPreviewNormalTexture(terrain, textureSet, textureSettings, verticalExaggeration).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   if (jobId !== materialJobRef.current || object.parent === null) {
@@ -637,7 +642,7 @@ async function applyUploadedTextureMaterial({
     color: bakedTexture || !heightColors ? 0xffffff : 0x8f927f,
     map: bakedTexture ?? null,
     normalMap: normalMap ?? null,
-    normalScale: normalMap ? new THREE.Vector2(0.72, 0.72) : undefined,
+    normalScale: normalMap ? new THREE.Vector2(1, 1) : undefined,
     roughness: 0.94,
     metalness: 0,
     vertexColors: !bakedTexture && heightColors,

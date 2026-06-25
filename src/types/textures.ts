@@ -13,6 +13,10 @@ export interface TerrainTextureSettings {
   blendStrength: number;
   repeat: number;
   bakeResolution: number;
+  terrainNormalEnabled: boolean;
+  terrainNormalStrength: number;
+  detailNormalStrength: number;
+  macroVariation: number;
 }
 
 export const TEXTURE_LAYER_LABELS: Record<TextureLayerKey, string> = {

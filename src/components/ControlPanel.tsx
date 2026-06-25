@@ -445,6 +445,35 @@ export function ControlPanel({
               integer
               onChange={(value) => updateTextureSettings('bakeResolution', value)}
             />
+            <SliderField
+              label="Variacao macro"
+              min={0}
+              max={0.7}
+              step={0.01}
+              value={textureSettings.macroVariation}
+              onChange={(value) => updateTextureSettings('macroVariation', value)}
+            />
+            <ToggleField
+              label="Normal do terreno no preview"
+              checked={textureSettings.terrainNormalEnabled}
+              onChange={(value) => updateTextureSettings('terrainNormalEnabled', value)}
+            />
+            <SliderField
+              label="Forca normal terreno"
+              min={0}
+              max={1.5}
+              step={0.01}
+              value={textureSettings.terrainNormalStrength}
+              onChange={(value) => updateTextureSettings('terrainNormalStrength', value)}
+            />
+            <SliderField
+              label="Forca normal detalhe"
+              min={0}
+              max={1.5}
+              step={0.01}
+              value={textureSettings.detailNormalStrength}
+              onChange={(value) => updateTextureSettings('detailNormalStrength', value)}
+            />
             <div className="texture-list">
               {textureSlots.map((slot) => (
                 <TextureDrop
