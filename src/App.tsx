@@ -278,7 +278,7 @@ export function App() {
           runExport('Textura', () => downloadTerrainTexturePNG(terrain!, exportSettings))
         }
         onExportNormalMap={() =>
-          runExport('Normal map', () => downloadNormalMapPNG(terrain!, params.verticalExaggeration))
+          runExport('Normal map', () => downloadNormalMapPNG(terrain!, exportSettings))
         }
         onExportZip={() => runExport('ZIP', () => downloadTerrainZip(terrain!, exportSettings))}
       />

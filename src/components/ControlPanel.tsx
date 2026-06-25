@@ -83,7 +83,16 @@ const lodPreviewModes: Array<{ value: TerrainLodPreviewMode; label: string }> = 
   { value: 'lod3', label: 'LOD 3' },
 ];
 
-const textureSlots: TextureLayerKey[] = ['grass', 'dirt', 'rock', 'snow', 'detailNormal'];
+const textureLayerGroups: Array<{
+  label: string;
+  diffuse: TextureLayerKey;
+  normal: TextureLayerKey;
+}> = [
+  { label: 'Grama / vegetacao', diffuse: 'grass', normal: 'grassNormal' },
+  { label: 'Terra / solo exposto', diffuse: 'dirt', normal: 'dirtNormal' },
+  { label: 'Pedra / encosta', diffuse: 'rock', normal: 'rockNormal' },
+  { label: 'Neve / topo claro', diffuse: 'snow', normal: 'snowNormal' },
+];
 
 export function ControlPanel({
   params,
@@ -478,7 +487,7 @@ export function ControlPanel({
               onChange={(value) => updateTextureSettings('terrainNormalStrength', value)}
             />
             <SliderField
-              label="Forca normal detalhe"
+              label="Forca normal maps"
               min={0}
               max={1.5}
               step={0.01}
@@ -486,14 +495,35 @@ export function ControlPanel({
               onChange={(value) => updateTextureSettings('detailNormalStrength', value)}
             />
             <div className="texture-list">
-              {textureSlots.map((slot) => (
+              {textureLayerGroups.map((layer) => (
+                <div className="texture-layer-group" key={layer.diffuse}>
+                  <div className="texture-layer-title">
+                    <strong>{layer.label}</strong>
+                    <span>Diffuse + normal map</span>
+                  </div>
+                  <TextureDrop
+                    slot={layer.diffuse}
+                    asset={textureSet[layer.diffuse]}
+                    onFile={onTextureFile}
+                  />
+                  <TextureDrop
+                    slot={layer.normal}
+                    asset={textureSet[layer.normal]}
+                    onFile={onTextureFile}
+                  />
+                </div>
+              ))}
+              <div className="texture-layer-group">
+                <div className="texture-layer-title">
+                  <strong>Normal global</strong>
+                  <span>Detalhe extra repetido por cima do terreno</span>
+                </div>
                 <TextureDrop
-                  key={slot}
-                  slot={slot}
-                  asset={textureSet[slot]}
+                  slot="detailNormal"
+                  asset={textureSet.detailNormal}
                   onFile={onTextureFile}
                 />
-              ))}
+              </div>
             </div>
           </Section>
         </div>

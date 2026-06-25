@@ -7,8 +7,10 @@ import { createTerrainGeometry } from '../terrain/geometry';
 import { computeTerrainNormal } from '../terrain/normals';
 import {
   createBakedTerrainTexture,
+  createBakedNormalMapBlob,
+  createBakedNormalTexture,
   createBakedTerrainTextureBlob,
-  createPreviewNormalTexture,
+  hasTextureNormals,
   hasTerrainTextures,
 } from '../terrain/textureBaker';
 
@@ -195,7 +197,7 @@ export async function createGLB(terrain: TerrainData, settings: ExportSettings) 
   });
   const useTextures =
     textureSettings.enabled &&
-    (hasTerrainTextures(textureSet) || Boolean(textureSet.detailNormal));
+    (hasTerrainTextures(textureSet) || hasTextureNormals(textureSet));
   const bakedTexture =
     useTextures && hasTerrainTextures(textureSet)
       ? await createBakedTerrainTexture(
@@ -205,7 +207,7 @@ export async function createGLB(terrain: TerrainData, settings: ExportSettings) 
           settings.verticalExaggeration,
         )
       : null;
-  const normalMap = await createPreviewNormalTexture(
+  const normalMap = await createBakedNormalTexture(
     terrain,
     textureSet,
     textureSettings,
@@ -262,8 +264,13 @@ export function downloadR16(terrain: TerrainData) {
   downloadBlob(new Blob([raw], { type: 'application/octet-stream' }), 'heightmap.r16');
 }
 
-export async function downloadNormalMapPNG(terrain: TerrainData, verticalExaggeration: number) {
-  const blob = await createNormalMapPngBlob(terrain, verticalExaggeration);
+export async function downloadNormalMapPNG(terrain: TerrainData, settings: ExportSettings) {
+  const blob = await createBakedNormalMapBlob(
+    terrain,
+    settings.textureSet ?? {},
+    settings.textureSettings ?? DEFAULT_BAKE_SETTINGS,
+    settings.verticalExaggeration,
+  );
   downloadBlob(blob, 'normalmap.png');
 }
 
@@ -287,7 +294,12 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
   const textureSettings = settings.textureSettings ?? DEFAULT_BAKE_SETTINGS;
   const [heightmapBlob, normalmapBlob, bakedTextureBlob, glb] = await Promise.all([
     createHeightmapPngBlob(terrain),
-    createNormalMapPngBlob(terrain, settings.verticalExaggeration),
+    createBakedNormalMapBlob(
+      terrain,
+      textureSet,
+      textureSettings,
+      settings.verticalExaggeration,
+    ),
     createBakedTerrainTextureBlob(
       terrain,
       textureSet,
@@ -324,7 +336,8 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
       diffuse: 'terrain_texture.png',
       normal: 'normalmap.png',
       material: 'terrain.mtl',
-      mode: 'height and slope blended single texture',
+      diffuseMode: 'height and slope blended single texture',
+      normalMode: 'terrain normal plus height and slope blended layer normal maps',
     },
     textureSettings,
     textures: settings.textureSet

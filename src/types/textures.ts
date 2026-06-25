@@ -1,4 +1,6 @@
-export type TextureLayerKey = 'grass' | 'dirt' | 'rock' | 'snow' | 'detailNormal';
+export type TerrainDiffuseLayerKey = 'grass' | 'dirt' | 'rock' | 'snow';
+export type TerrainNormalLayerKey = 'grassNormal' | 'dirtNormal' | 'rockNormal' | 'snowNormal';
+export type TextureLayerKey = TerrainDiffuseLayerKey | TerrainNormalLayerKey | 'detailNormal';
 
 export interface TerrainTextureAsset {
   name: string;
@@ -21,8 +23,12 @@ export interface TerrainTextureSettings {
 
 export const TEXTURE_LAYER_LABELS: Record<TextureLayerKey, string> = {
   grass: 'Grama / vegetacao',
+  grassNormal: 'Normal grama',
   dirt: 'Terra / solo exposto',
+  dirtNormal: 'Normal terra',
   rock: 'Pedra / encosta',
+  rockNormal: 'Normal pedra',
   snow: 'Neve / topo claro',
+  snowNormal: 'Normal neve',
   detailNormal: 'Normal de detalhe',
 };

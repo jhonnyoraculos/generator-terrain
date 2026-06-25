@@ -20,6 +20,7 @@ import { createTerrainGeometry, estimateLodGeometryStats } from '../terrain/geom
 import {
   createBakedTerrainTexture,
   createPreviewNormalTexture,
+  hasTextureNormals,
   hasTerrainTextures,
 } from '../terrain/textureBaker';
 
@@ -720,14 +721,14 @@ async function applyUploadedTextureMaterial({
     viewMode === 'shaded' &&
     ((textureSettings.enabled && hasTerrainTextures(textureSet)) ||
       textureSettings.terrainNormalEnabled ||
-      Boolean(textureSet.detailNormal));
+      hasTextureNormals(textureSet));
 
   if (!shouldUseTexture) {
     return;
   }
 
   const shouldBakeDiffuse = textureSettings.enabled && hasTerrainTextures(textureSet);
-  const shouldUseNormal = textureSettings.terrainNormalEnabled || Boolean(textureSet.detailNormal);
+  const shouldUseNormal = textureSettings.terrainNormalEnabled || hasTextureNormals(textureSet);
   const [bakedTexture, normalMap] = await Promise.all([
     shouldBakeDiffuse
       ? createBakedTerrainTexture(terrain, textureSet, textureSettings, verticalExaggeration).catch(() => null)

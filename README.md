@@ -54,7 +54,7 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 - `terrain.glb`: versao GLB com material simples e cores por altura quando ativadas.
 - `heightmap.png`: heightmap 8-bit para preview e ferramentas gerais.
 - `heightmap.r16`: RAW 16-bit little-endian normalizado de `0` a `65535`.
-- `normalmap.png`: normal map gerado a partir da malha atual.
+- `normalmap.png`: normal map combinado a partir do relevo, dos normals por textura e do normal global de detalhe.
 - `terrain_texture.png`: textura unica bakeada do terreno, com as camadas misturadas por altura e inclinacao.
 - `textures/`: texturas originais carregadas pelo usuario quando exportadas no ZIP.
 - `metadata.json`: seed, dimensoes, resolucao, altura, exagero vertical e parametros usados.
@@ -87,15 +87,15 @@ Isso afeta apenas a visualizacao no navegador. OBJ, GLB, heightmap e RAW continu
 
 A aba `Texturas` permite carregar imagens locais para:
 
-- grama / vegetacao
-- terra / solo exposto
-- pedra / encosta
-- neve / topo claro
-- normal de detalhe
+- diffuse e normal map de grama / vegetacao
+- diffuse e normal map de terra / solo exposto
+- diffuse e normal map de pedra / encosta
+- diffuse e normal map de neve / topo claro
+- normal de detalhe global opcional
 
 O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo usa o UV `0..1` da propria malha, entra no ZIP e tambem pode ser incorporado no GLB.
 
-No preview, o normal map geral do terreno e aplicado automaticamente no material. A aba `Texturas` tambem permite ajustar a forca do normal do terreno, a forca do normal de detalhe e a variacao macro usada para quebrar repeticao visual.
+No preview, o normal map geral do terreno e aplicado automaticamente no material. Os normal maps de cada camada usam as mesmas mascaras de altura/inclinacao da textura difusa, entao pedra, terra, grama e neve entram no relevo visual nos lugares corretos. A aba `Texturas` tambem permite ajustar a forca do normal do terreno, a forca dos normals carregados e a variacao macro usada para quebrar repeticao visual.
 
 O ZIP tambem inclui `terrain.mtl`, que referencia:
 

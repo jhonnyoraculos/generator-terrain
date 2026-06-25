@@ -388,6 +388,33 @@ input[type="range"] {
   gap: 0.58rem;
 }
 
+.texture-layer-group {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgb(17 20 15 / 0.52);
+  padding: 0.5rem;
+}
+
+.texture-layer-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.texture-layer-title strong {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.texture-layer-title span {
+  color: var(--faint);
+  font-size: 0.74rem;
+  text-align: right;
+}
+
 .texture-drop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 38px;

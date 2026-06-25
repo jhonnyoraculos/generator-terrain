@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import type { TerrainData } from '../types/terrain';
-import type { TerrainTextureSettings, TerrainTextureSet, TextureLayerKey } from '../types/textures';
+import type {
+  TerrainDiffuseLayerKey,
+  TerrainTextureAsset,
+  TerrainTextureSettings,
+  TerrainTextureSet,
+  TextureLayerKey,
+} from '../types/textures';
 import { getHeightColor } from './geometry';
 import { computeTerrainNormal } from './normals';
 import { clamp, lerp, smoothstep } from './noise';
@@ -11,15 +17,27 @@ interface PreparedTexture {
   data: Uint8ClampedArray;
 }
 
-const FALLBACK_COLORS: Record<Exclude<TextureLayerKey, 'detailNormal'>, [number, number, number]> = {
+const FALLBACK_COLORS: Record<TerrainDiffuseLayerKey, [number, number, number]> = {
   grass: [88, 136, 76],
   dirt: [121, 101, 72],
   rock: [132, 128, 116],
   snow: [224, 225, 214],
 };
 
+const FALLBACK_NORMAL = [128, 128, 255] as [number, number, number];
+
 export function hasTerrainTextures(textures: TerrainTextureSet) {
   return Boolean(textures.grass || textures.dirt || textures.rock || textures.snow);
+}
+
+export function hasTextureNormals(textures: TerrainTextureSet) {
+  return Boolean(
+    textures.grassNormal ||
+      textures.dirtNormal ||
+      textures.rockNormal ||
+      textures.snowNormal ||
+      textures.detailNormal,
+  );
 }
 
 export async function createBakedTerrainTexture(
@@ -66,6 +84,52 @@ export async function createBakedTerrainTextureBlob(
   });
 }
 
+export async function createBakedNormalMapBlob(
+  terrain: TerrainData,
+  textures: TerrainTextureSet,
+  settings: TerrainTextureSettings,
+  verticalExaggeration: number,
+) {
+  const canvas = await createCombinedNormalCanvas(
+    terrain,
+    textures,
+    settings,
+    verticalExaggeration,
+    true,
+  );
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error('Falha ao serializar o normal map combinado.'));
+    }, 'image/png');
+  });
+}
+
+export async function createBakedNormalTexture(
+  terrain: TerrainData,
+  textures: TerrainTextureSet,
+  settings: TerrainTextureSettings,
+  verticalExaggeration: number,
+) {
+  const canvas = await createCombinedNormalCanvas(
+    terrain,
+    textures,
+    settings,
+    verticalExaggeration,
+    true,
+  );
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export async function loadDetailNormalTexture(
   textures: TerrainTextureSet,
   repeat: number,
@@ -89,15 +153,16 @@ export async function createPreviewNormalTexture(
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
 ) {
-  if (!settings.terrainNormalEnabled && !textures.detailNormal) {
+  if (!settings.terrainNormalEnabled && !hasTextureNormals(textures)) {
     return null;
   }
 
-  const canvas = await createPreviewNormalCanvas(
+  const canvas = await createCombinedNormalCanvas(
     terrain,
     textures,
     settings,
     verticalExaggeration,
+    false,
   );
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.NoColorSpace;
@@ -209,13 +274,17 @@ function getTextureWeights(height: number, slope: number) {
   };
 }
 
-async function createPreviewNormalCanvas(
+async function createCombinedNormalCanvas(
   terrain: TerrainData,
   textures: TerrainTextureSet,
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
+  forceTerrainNormal: boolean,
 ) {
-  const size = Math.max(128, Math.min(1024, Math.round(settings.bakeResolution)));
+  const requestedSize = Math.round(settings.bakeResolution);
+  const size = forceTerrainNormal
+    ? Math.max(128, Math.min(4096, requestedSize))
+    : Math.max(128, Math.min(1024, requestedSize));
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -224,15 +293,21 @@ async function createPreviewNormalCanvas(
     throw new Error('Canvas 2D indisponivel para gerar normal map de preview.');
   }
 
-  const detailNormal = textures.detailNormal
-    ? await prepareTexture(textures.detailNormal, [128, 128, 255])
-    : null;
+  const [grassNormal, dirtNormal, rockNormal, snowNormal, detailNormal] = await Promise.all([
+    prepareNormalTexture(textures.grassNormal),
+    prepareNormalTexture(textures.dirtNormal),
+    prepareNormalTexture(textures.rockNormal),
+    prepareNormalTexture(textures.snowNormal),
+    prepareNormalTexture(textures.detailNormal),
+  ]);
   const image = context.createImageData(size, size);
   const repeat = Math.max(1, settings.repeat);
-  const terrainStrength = settings.terrainNormalEnabled
+  const terrainStrength = forceTerrainNormal || settings.terrainNormalEnabled
     ? clamp(settings.terrainNormalStrength, 0, 2)
     : 0;
-  const detailStrength = detailNormal ? clamp(settings.detailNormalStrength, 0, 2) : 0;
+  const textureNormalStrength =
+    hasTextureNormals(textures) ? clamp(settings.detailNormalStrength, 0, 2) : 0;
+  const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
 
   for (let y = 0; y < size; y += 1) {
     const v = y / Math.max(1, size - 1);
@@ -241,16 +316,33 @@ async function createPreviewNormalCanvas(
     for (let x = 0; x < size; x += 1) {
       const u = x / Math.max(1, size - 1);
       const col = Math.round(u * (terrain.resolution - 1));
+      const height = terrain.heights[row * terrain.resolution + col];
+      const height01 = clamp((height - terrain.stats.heightMin) / heightRange, 0, 1);
       const terrainNormal = computeTerrainNormal(terrain, row, col, verticalExaggeration);
       let nx = terrainNormal.x * terrainStrength;
       let ny = terrainNormal.z * terrainStrength;
-      let nz = Math.max(0.08, terrainNormal.y);
+      let nz = terrainStrength > 0 ? Math.max(0.08, terrainNormal.y) : 1;
+      const slope = clamp(1 - terrainNormal.y, 0, 1);
+      const weights = getTextureWeights(height01, slope);
 
-      if (detailNormal && detailStrength > 0) {
-        const detail = samplePreparedTexture(detailNormal, u, v, repeat);
-        nx += ((detail[0] / 255) * 2 - 1) * detailStrength;
-        ny += ((detail[1] / 255) * 2 - 1) * detailStrength;
-        nz += ((detail[2] / 255) * 2 - 1) * detailStrength * 0.35;
+      if (textureNormalStrength > 0) {
+        const blendedLayerNormal = mixFourNormals(
+          sampleNormalTexture(grassNormal, u, v, repeat),
+          sampleNormalTexture(dirtNormal, u, v, repeat),
+          sampleNormalTexture(rockNormal, u, v, repeat),
+          sampleNormalTexture(snowNormal, u, v, repeat),
+          weights,
+        );
+        nx += blendedLayerNormal[0] * textureNormalStrength;
+        ny += blendedLayerNormal[1] * textureNormalStrength;
+        nz += (blendedLayerNormal[2] - 1) * textureNormalStrength * 0.72;
+      }
+
+      if (detailNormal && textureNormalStrength > 0) {
+        const detail = sampleNormalTexture(detailNormal, u, v, repeat);
+        nx += detail[0] * textureNormalStrength;
+        ny += detail[1] * textureNormalStrength;
+        nz += (detail[2] - 1) * textureNormalStrength * 0.52;
       }
 
       const length = Math.hypot(nx, ny, nz) || 1;
@@ -298,6 +390,10 @@ async function prepareTexture(
   };
 }
 
+async function prepareNormalTexture(asset: TerrainTextureAsset | undefined) {
+  return asset ? prepareTexture(asset, FALLBACK_NORMAL) : null;
+}
+
 function loadImage(url: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -341,6 +437,25 @@ function samplePreparedTexture(texture: PreparedTexture, u: number, v: number, r
   ];
 }
 
+function sampleNormalTexture(
+  texture: PreparedTexture | null,
+  u: number,
+  v: number,
+  repeat: number,
+) {
+  if (!texture) {
+    return [0, 0, 1] as [number, number, number];
+  }
+
+  const color = samplePreparedTexture(texture, u, v, repeat);
+  const normal = [
+    (color[0] / 255) * 2 - 1,
+    (color[1] / 255) * 2 - 1,
+    (color[2] / 255) * 2 - 1,
+  ] as [number, number, number];
+  return normalizeNormal(normal);
+}
+
 function getPixel(texture: PreparedTexture, x: number, y: number) {
   const offset = (y * texture.width + x) * 4;
   return [texture.data[offset], texture.data[offset + 1], texture.data[offset + 2]] as [
@@ -361,6 +476,29 @@ function mixFour(
     grass[0] * weights.grass + dirt[0] * weights.dirt + rock[0] * weights.rock + snow[0] * weights.snow,
     grass[1] * weights.grass + dirt[1] * weights.dirt + rock[1] * weights.rock + snow[1] * weights.snow,
     grass[2] * weights.grass + dirt[2] * weights.dirt + rock[2] * weights.rock + snow[2] * weights.snow,
+  ] as [number, number, number];
+}
+
+function mixFourNormals(
+  grass: [number, number, number],
+  dirt: [number, number, number],
+  rock: [number, number, number],
+  snow: [number, number, number],
+  weights: ReturnType<typeof getTextureWeights>,
+) {
+  return normalizeNormal([
+    grass[0] * weights.grass + dirt[0] * weights.dirt + rock[0] * weights.rock + snow[0] * weights.snow,
+    grass[1] * weights.grass + dirt[1] * weights.dirt + rock[1] * weights.rock + snow[1] * weights.snow,
+    grass[2] * weights.grass + dirt[2] * weights.dirt + rock[2] * weights.rock + snow[2] * weights.snow,
+  ]);
+}
+
+function normalizeNormal(normal: [number, number, number]) {
+  const length = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+  return [
+    normal[0] / length,
+    normal[1] / length,
+    normal[2] / length,
   ] as [number, number, number];
 }
 
