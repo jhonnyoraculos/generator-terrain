@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
 } from 'react';
 import type { MutableRefObject } from 'react';
 import * as THREE from 'three';
@@ -32,6 +33,13 @@ interface TerrainViewerProps {
   textureSettings: TerrainTextureSettings;
 }
 
+interface PerformanceSnapshot {
+  fps: number;
+  frameMs: number;
+  drawCalls: number;
+  rendererTriangles: number;
+}
+
 export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>(
   (
     {
@@ -57,6 +65,12 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
     const latestTerrainRef = useRef<TerrainData | null>(null);
     const verticalExaggerationRef = useRef(verticalExaggeration);
     const materialJobRef = useRef(0);
+    const [performanceSnapshot, setPerformanceSnapshot] = useState<PerformanceSnapshot>({
+      fps: 0,
+      frameMs: 0,
+      drawCalls: 0,
+      rendererTriangles: 0,
+    });
 
     useImperativeHandle(ref, () => ({
       resetCamera: () => frameCamera(latestTerrainRef.current, verticalExaggerationRef.current),
@@ -124,9 +138,31 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
       const resizeObserver = new ResizeObserver(() => resize());
       resizeObserver.observe(container);
 
+      let frameCounter = 0;
+      let lastSampleTime = performance.now();
+      let lastFrameTime = lastSampleTime;
+
       const animate = () => {
+        const now = performance.now();
+        const frameMs = now - lastFrameTime;
+        lastFrameTime = now;
+        frameCounter += 1;
+
         controls.update();
         renderer.render(scene, camera);
+
+        const elapsed = now - lastSampleTime;
+        if (elapsed >= 500) {
+          setPerformanceSnapshot({
+            fps: Math.round((frameCounter * 1000) / elapsed),
+            frameMs: Number(frameMs.toFixed(1)),
+            drawCalls: renderer.info.render.calls,
+            rendererTriangles: renderer.info.render.triangles,
+          });
+          frameCounter = 0;
+          lastSampleTime = now;
+        }
+
         frameRef.current = window.requestAnimationFrame(animate);
       };
 
@@ -273,7 +309,43 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
       controls.update();
     }
 
-    return <div className="viewer" ref={containerRef} />;
+    return (
+      <div className="viewer">
+        <div className="viewer-canvas" ref={containerRef} />
+        <div className="perf-panel" aria-label="Estatisticas de performance">
+          <div className={performanceSnapshot.fps > 0 && performanceSnapshot.fps < 30 ? 'perf-fps low' : 'perf-fps'}>
+            <strong>{performanceSnapshot.fps || '-'}</strong>
+            <span>FPS</span>
+          </div>
+          <dl className="perf-grid">
+            <div>
+              <dt>Frame</dt>
+              <dd>{performanceSnapshot.frameMs ? `${performanceSnapshot.frameMs} ms` : '-'}</dd>
+            </div>
+            <div>
+              <dt>Vertices</dt>
+              <dd>{terrain?.stats.vertices.toLocaleString('pt-BR') ?? '-'}</dd>
+            </div>
+            <div>
+              <dt>Poligonos</dt>
+              <dd>{terrain?.stats.triangles.toLocaleString('pt-BR') ?? '-'}</dd>
+            </div>
+            <div>
+              <dt>Render tris</dt>
+              <dd>{performanceSnapshot.rendererTriangles.toLocaleString('pt-BR')}</dd>
+            </div>
+            <div>
+              <dt>Draw calls</dt>
+              <dd>{performanceSnapshot.drawCalls}</dd>
+            </div>
+            <div>
+              <dt>Resolucao</dt>
+              <dd>{terrain ? `${terrain.resolution} x ${terrain.resolution}` : '-'}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    );
   },
 );
 
