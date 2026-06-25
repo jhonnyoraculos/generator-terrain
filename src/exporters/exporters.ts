@@ -2,12 +2,21 @@ import { strToU8, zipSync } from 'fflate';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { TerrainData } from '../types/terrain';
+import type { TerrainTextureSettings, TerrainTextureSet } from '../types/textures';
 import { createTerrainGeometry } from '../terrain/geometry';
 import { computeTerrainNormal } from '../terrain/normals';
+import {
+  createBakedTerrainTexture,
+  createBakedTerrainTextureBlob,
+  hasTerrainTextures,
+  loadDetailNormalTexture,
+} from '../terrain/textureBaker';
 
 interface ExportSettings {
   verticalExaggeration: number;
   heightColors: boolean;
+  textureSet?: TerrainTextureSet;
+  textureSettings?: TerrainTextureSettings;
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
@@ -134,11 +143,31 @@ export async function createGLB(terrain: TerrainData, settings: ExportSettings) 
     verticalExaggeration: settings.verticalExaggeration,
     includeVertexColors: settings.heightColors,
   });
+  const useTextures =
+    settings.textureSettings?.enabled &&
+    settings.textureSet &&
+    (hasTerrainTextures(settings.textureSet) || Boolean(settings.textureSet.detailNormal));
+  const bakedTexture =
+    useTextures && settings.textureSet && settings.textureSettings && hasTerrainTextures(settings.textureSet)
+      ? await createBakedTerrainTexture(
+          terrain,
+          settings.textureSet,
+          settings.textureSettings,
+          settings.verticalExaggeration,
+        )
+      : null;
+  const normalMap =
+    useTextures && settings.textureSet && settings.textureSettings
+      ? await loadDetailNormalTexture(settings.textureSet, settings.textureSettings.repeat).catch(() => null)
+      : null;
   const material = new THREE.MeshStandardMaterial({
-    color: settings.heightColors ? 0xffffff : 0x8a8d84,
+    color: bakedTexture || settings.heightColors ? 0xffffff : 0x8a8d84,
+    map: bakedTexture,
+    normalMap,
+    normalScale: normalMap ? new THREE.Vector2(0.72, 0.72) : undefined,
     roughness: 0.92,
     metalness: 0,
-    vertexColors: settings.heightColors,
+    vertexColors: !bakedTexture && settings.heightColors,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'TerrainForge';
@@ -161,6 +190,8 @@ export async function createGLB(terrain: TerrainData, settings: ExportSettings) 
     });
   } finally {
     geometry.dispose();
+    bakedTexture?.dispose();
+    normalMap?.dispose();
     material.dispose();
   }
 }
@@ -191,9 +222,21 @@ export async function downloadGLB(terrain: TerrainData, settings: ExportSettings
 }
 
 export async function downloadTerrainZip(terrain: TerrainData, settings: ExportSettings) {
-  const [heightmapBlob, normalmapBlob, glb] = await Promise.all([
+  const shouldBakeTexture =
+    settings.textureSettings?.enabled &&
+    settings.textureSet &&
+    hasTerrainTextures(settings.textureSet);
+  const [heightmapBlob, normalmapBlob, bakedTextureBlob, glb] = await Promise.all([
     createHeightmapPngBlob(terrain),
     createNormalMapPngBlob(terrain, settings.verticalExaggeration),
+    shouldBakeTexture && settings.textureSet && settings.textureSettings
+      ? createBakedTerrainTextureBlob(
+          terrain,
+          settings.textureSet,
+          settings.textureSettings,
+          settings.verticalExaggeration,
+        )
+      : Promise.resolve(null),
     createGLB(terrain, settings),
   ]);
 
@@ -216,6 +259,15 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
       heightmapResolutionRecommended: terrain.stats.unityFriendlyResolution,
     },
     params: terrain.params,
+    textureSettings: settings.textureSettings,
+    textures: settings.textureSet
+      ? Object.fromEntries(
+          Object.entries(settings.textureSet).map(([slot, asset]) => [
+            slot,
+            asset ? { name: asset.name } : null,
+          ]),
+        )
+      : {},
   };
 
   const files: Record<string, Uint8Array> = {
@@ -226,6 +278,23 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
     'normalmap.png': new Uint8Array(await normalmapBlob.arrayBuffer()),
     'metadata.json': strToU8(JSON.stringify(metadata, null, 2)),
   };
+
+  if (bakedTextureBlob) {
+    files['terrain_texture.png'] = new Uint8Array(await bakedTextureBlob.arrayBuffer());
+  }
+
+  if (settings.textureSet) {
+    const textureEntries = Object.entries(settings.textureSet);
+    await Promise.all(
+      textureEntries.map(async ([slot, asset]) => {
+        if (!asset?.file) {
+          return;
+        }
+        const safeName = asset.name.replace(/[^\w.-]+/g, '_');
+        files[`textures/${slot}-${safeName}`] = new Uint8Array(await asset.file.arrayBuffer());
+      }),
+    );
+  }
 
   const zipped = zipSync(files, { level: 6 });
   downloadBlob(new Blob([zipped], { type: 'application/zip' }), 'terrain-forge-export.zip');

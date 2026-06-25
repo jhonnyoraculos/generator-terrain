@@ -20,22 +20,28 @@ export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeom
   const vertexCount = resolution * resolution;
   const positions = new Float32Array(vertexCount * 3);
   const colors = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
   const indexCount = (resolution - 1) * (resolution - 1) * 6;
   const indices =
     vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
 
   let vertexOffset = 0;
+  let uvOffset = 0;
   for (let row = 0; row < resolution; row += 1) {
-    const z = (row / (resolution - 1) - 0.5) * depth;
+    const v = row / (resolution - 1);
+    const z = (v - 0.5) * depth;
 
     for (let col = 0; col < resolution; col += 1) {
+      const u = col / (resolution - 1);
       const index = row * resolution + col;
-      const x = (col / (resolution - 1) - 0.5) * width;
+      const x = (u - 0.5) * width;
       const y = heights[index] * options.verticalExaggeration;
       positions[vertexOffset] = x;
       positions[vertexOffset + 1] = y;
       positions[vertexOffset + 2] = z;
+      uvs[uvOffset] = u;
+      uvs[uvOffset + 1] = 1 - v;
 
       const normalizedHeight = (heights[index] - terrain.stats.heightMin) / heightRange;
       const slope = estimateSlope01(terrain, row, col, options.verticalExaggeration);
@@ -44,6 +50,7 @@ export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeom
       colors[vertexOffset + 1] = color[1];
       colors[vertexOffset + 2] = color[2];
       vertexOffset += 3;
+      uvOffset += 2;
     }
   }
 
@@ -68,6 +75,7 @@ export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeom
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();

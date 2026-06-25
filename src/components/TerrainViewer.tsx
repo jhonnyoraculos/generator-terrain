@@ -4,10 +4,17 @@ import {
   useImperativeHandle,
   useRef,
 } from 'react';
+import type { MutableRefObject } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { TerrainData, ViewMode } from '../types/terrain';
+import type { TerrainTextureSettings, TerrainTextureSet } from '../types/textures';
 import { createTerrainGeometry } from '../terrain/geometry';
+import {
+  createBakedTerrainTexture,
+  hasTerrainTextures,
+  loadDetailNormalTexture,
+} from '../terrain/textureBaker';
 
 export interface TerrainViewerHandle {
   resetCamera: () => void;
@@ -21,10 +28,23 @@ interface TerrainViewerProps {
   showGrid: boolean;
   heightColors: boolean;
   verticalExaggeration: number;
+  textureSet: TerrainTextureSet;
+  textureSettings: TerrainTextureSettings;
 }
 
 export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>(
-  ({ terrain, viewMode, showGrid, heightColors, verticalExaggeration }, ref) => {
+  (
+    {
+      terrain,
+      viewMode,
+      showGrid,
+      heightColors,
+      verticalExaggeration,
+      textureSet,
+      textureSettings,
+    },
+    ref,
+  ) => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
     const sceneRef = useRef<THREE.Scene | null>(null);
@@ -36,6 +56,7 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
     const hasFramedRef = useRef(false);
     const latestTerrainRef = useRef<TerrainData | null>(null);
     const verticalExaggerationRef = useRef(verticalExaggeration);
+    const materialJobRef = useRef(0);
 
     useImperativeHandle(ref, () => ({
       resetCamera: () => frameCamera(latestTerrainRef.current, verticalExaggerationRef.current),
@@ -155,12 +176,26 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
       mesh.receiveShadow = true;
       meshRef.current = mesh;
       scene.add(mesh);
+      const materialJob = materialJobRef.current + 1;
+      materialJobRef.current = materialJob;
+
+      applyUploadedTextureMaterial({
+        jobId: materialJob,
+        mesh,
+        terrain,
+        viewMode,
+        heightColors,
+        verticalExaggeration,
+        textureSet,
+        textureSettings,
+        materialJobRef,
+      });
 
       if (!hasFramedRef.current) {
         frameCamera(terrain, verticalExaggeration);
         hasFramedRef.current = true;
       }
-    }, [terrain, viewMode, heightColors, verticalExaggeration]);
+    }, [terrain, viewMode, heightColors, verticalExaggeration, textureSet, textureSettings]);
 
     useEffect(() => {
       const scene = sceneRef.current;
@@ -278,10 +313,77 @@ function disposeMesh(mesh: THREE.Mesh | null) {
 
   mesh.removeFromParent();
   mesh.geometry.dispose();
-  const material = mesh.material;
+  disposeMaterial(mesh.material);
+}
+
+function disposeMaterial(material: THREE.Material | THREE.Material[]) {
   if (Array.isArray(material)) {
-    material.forEach((entry) => entry.dispose());
+    material.forEach((entry) => disposeSingleMaterial(entry));
   } else {
-    material.dispose();
+    disposeSingleMaterial(material);
   }
+}
+
+function disposeSingleMaterial(material: THREE.Material) {
+  const textured = material as THREE.MeshStandardMaterial;
+  textured.map?.dispose();
+  textured.normalMap?.dispose();
+  material.dispose();
+}
+
+async function applyUploadedTextureMaterial({
+  jobId,
+  mesh,
+  terrain,
+  viewMode,
+  heightColors,
+  verticalExaggeration,
+  textureSet,
+  textureSettings,
+  materialJobRef,
+}: {
+  jobId: number;
+  mesh: THREE.Mesh;
+  terrain: TerrainData;
+  viewMode: ViewMode;
+  heightColors: boolean;
+  verticalExaggeration: number;
+  textureSet: TerrainTextureSet;
+  textureSettings: TerrainTextureSettings;
+  materialJobRef: MutableRefObject<number>;
+}) {
+  const shouldUseTexture =
+    viewMode === 'shaded' &&
+    textureSettings.enabled &&
+    (hasTerrainTextures(textureSet) || Boolean(textureSet.detailNormal));
+
+  if (!shouldUseTexture) {
+    return;
+  }
+
+  const [bakedTexture, normalMap] = await Promise.all([
+    hasTerrainTextures(textureSet)
+      ? createBakedTerrainTexture(terrain, textureSet, textureSettings, verticalExaggeration).catch(() => null)
+      : Promise.resolve(null),
+    loadDetailNormalTexture(textureSet, textureSettings.repeat).catch(() => null),
+  ]);
+
+  if (jobId !== materialJobRef.current || mesh.parent === null) {
+    bakedTexture?.dispose();
+    normalMap?.dispose();
+    return;
+  }
+
+  const nextMaterial = new THREE.MeshStandardMaterial({
+    color: bakedTexture || !heightColors ? 0xffffff : 0x8f927f,
+    map: bakedTexture ?? null,
+    normalMap: normalMap ?? null,
+    normalScale: normalMap ? new THREE.Vector2(0.72, 0.72) : undefined,
+    roughness: 0.94,
+    metalness: 0,
+    vertexColors: !bakedTexture && heightColors,
+  });
+  const previousMaterial = mesh.material;
+  mesh.material = nextMaterial;
+  disposeMaterial(previousMaterial);
 }

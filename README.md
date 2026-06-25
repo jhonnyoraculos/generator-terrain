@@ -54,6 +54,8 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 - `heightmap.png`: heightmap 8-bit para preview e ferramentas gerais.
 - `heightmap.r16`: RAW 16-bit little-endian normalizado de `0` a `65535`.
 - `normalmap.png`: normal map gerado a partir da malha atual.
+- `terrain_texture.png`: textura bakeada do terreno quando a aba Texturas estiver ativa.
+- `textures/`: texturas originais carregadas pelo usuario quando exportadas no ZIP.
 - `metadata.json`: seed, dimensoes, resolucao, altura, exagero vertical e parametros usados.
 - `terrain-forge-export.zip`: pacote com todos os arquivos acima.
 
@@ -68,6 +70,18 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 - `suavizacao` e `erosao`: filtram o relevo para reduzir ruido quebrado e simular deposicao simples.
 - `falloff nas bordas`: cria ilhas ou terrenos isolados.
 - `exagero vertical`: multiplica a altura usada na visualizacao e exportacao de malha.
+
+## Texturas
+
+A aba `Texturas` permite carregar imagens locais para:
+
+- grama / vegetacao
+- terra / solo exposto
+- pedra / encosta
+- neve / topo claro
+- normal de detalhe
+
+O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo entra no ZIP e tambem pode ser incorporado no GLB.
 
 ## Como importar na Unity
 
@@ -113,6 +127,7 @@ Use esses valores para reconstruir a escala no Terrain da Unity ou para repetir 
 
 - Morros suaves
 - Serra mineira
+- Minas - mar de morros
 - Montanhas altas
 - Vale profundo
 - Ilha montanhosa

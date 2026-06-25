@@ -199,6 +199,31 @@ input[type="range"] {
   font-size: 0.88rem;
 }
 
+.panel-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 1rem;
+}
+
+.panel-tabs button {
+  min-width: 0;
+  padding-inline: 0.48rem;
+  color: var(--muted);
+}
+
+.panel-tabs button.active {
+  border-color: var(--accent);
+  background: rgb(145 215 101 / 0.12);
+  color: var(--accent-strong);
+}
+
+.tab-body {
+  min-width: 0;
+}
+
 .control-section {
   border-top: 1px solid var(--line-soft);
   margin-top: 1rem;
@@ -319,6 +344,86 @@ input[type="range"] {
   background: rgb(114 214 205 / 0.1);
   color: #a8f0e8;
   font-size: 0.86rem;
+}
+
+.texture-list {
+  display: grid;
+  gap: 0.58rem;
+}
+
+.texture-drop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 0.45rem;
+  align-items: stretch;
+}
+
+.texture-drop label {
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 0.62rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11140f;
+  color: var(--muted);
+  padding: 0.42rem;
+  cursor: pointer;
+}
+
+.texture-drop input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.texture-preview {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgb(145 215 101 / 0.14), rgb(114 214 205 / 0.12)),
+    #1b2119;
+  background-position: center;
+  background-size: cover;
+  color: var(--accent-strong);
+}
+
+.texture-meta {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.texture-meta strong {
+  color: var(--text);
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.texture-meta em {
+  color: var(--faint);
+  font-size: 0.76rem;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-button {
+  width: 38px;
+  min-width: 38px;
+  padding: 0;
 }
 
 .preview-shell {

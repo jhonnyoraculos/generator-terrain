@@ -18,12 +18,28 @@ import type {
   TerrainWorkerResponse,
   ViewMode,
 } from './types/terrain';
+import type {
+  TerrainTextureAsset,
+  TerrainTextureSettings,
+  TerrainTextureSet,
+  TextureLayerKey,
+} from './types/textures';
+
+const DEFAULT_TEXTURE_SETTINGS: TerrainTextureSettings = {
+  enabled: false,
+  blendStrength: 0.82,
+  repeat: 9,
+  bakeResolution: 1024,
+};
 
 export function App() {
   const [params, setParams] = useState<TerrainParams>(DEFAULT_TERRAIN_PARAMS);
   const [terrain, setTerrain] = useState<TerrainData | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('shaded');
   const [showGrid, setShowGrid] = useState(true);
+  const [textureSet, setTextureSet] = useState<TerrainTextureSet>({});
+  const [textureSettings, setTextureSettings] =
+    useState<TerrainTextureSettings>(DEFAULT_TEXTURE_SETTINGS);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [selectedPresetId, setSelectedPresetId] = useState('');
@@ -31,6 +47,7 @@ export function App() {
   const viewerRef = useRef<TerrainViewerHandle | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const latestRequestRef = useRef(0);
+  const textureSetRef = useRef<TerrainTextureSet>({});
 
   useEffect(() => {
     let worker: Worker | null = null;
@@ -69,6 +86,20 @@ export function App() {
     };
 
     return () => worker?.terminate();
+  }, []);
+
+  useEffect(() => {
+    textureSetRef.current = textureSet;
+  }, [textureSet]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(textureSetRef.current).forEach((asset) => {
+        if (asset?.url) {
+          URL.revokeObjectURL(asset.url);
+        }
+      });
+    };
   }, []);
 
   const requestGenerate = useCallback((nextParams: TerrainParams) => {
@@ -145,9 +176,36 @@ export function App() {
     setShowGrid(true);
   };
 
+  const handleTextureFile = (slot: TextureLayerKey, file: File | null) => {
+    setTextureSet((current) => {
+      const previous = current[slot];
+      if (previous?.url) {
+        URL.revokeObjectURL(previous.url);
+      }
+
+      if (!file) {
+        const { [slot]: _removed, ...rest } = current;
+        return rest;
+      }
+
+      const asset: TerrainTextureAsset = {
+        name: file.name,
+        file,
+        url: URL.createObjectURL(file),
+      };
+      return {
+        ...current,
+        [slot]: asset,
+      };
+    });
+    setTextureSettings((current) => ({ ...current, enabled: true }));
+  };
+
   const exportSettings = {
     verticalExaggeration: params.verticalExaggeration,
     heightColors: params.heightColors,
+    textureSet,
+    textureSettings,
   };
 
   const runExport = async (name: string, action: () => Promise<void> | void) => {
@@ -177,6 +235,8 @@ export function App() {
         selectedPresetId={selectedPresetId}
         viewMode={viewMode}
         showGrid={showGrid}
+        textureSet={textureSet}
+        textureSettings={textureSettings}
         generating={generating}
         exporting={exporting}
         warning={warning}
@@ -184,6 +244,8 @@ export function App() {
         onPresetChange={handlePresetChange}
         onViewModeChange={setViewMode}
         onGridChange={setShowGrid}
+        onTextureSettingsChange={setTextureSettings}
+        onTextureFile={handleTextureFile}
         onGenerate={() => requestGenerate(params)}
         onRandomSeed={handleRandomSeed}
         onReset={handleReset}
@@ -230,6 +292,8 @@ export function App() {
             showGrid={showGrid}
             heightColors={params.heightColors}
             verticalExaggeration={params.verticalExaggeration}
+            textureSet={textureSet}
+            textureSettings={textureSettings}
           />
           {generating ? (
             <div className="viewer-badge">
