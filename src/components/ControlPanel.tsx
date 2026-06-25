@@ -55,6 +55,7 @@ interface ControlPanelProps {
   onExportGLB: () => void;
   onExportHeightmap: () => void;
   onExportRaw: () => void;
+  onExportTextureMap: () => void;
   onExportNormalMap: () => void;
   onExportZip: () => void;
 }
@@ -96,6 +97,7 @@ export function ControlPanel({
   onExportGLB,
   onExportHeightmap,
   onExportRaw,
+  onExportTextureMap,
   onExportNormalMap,
   onExportZip,
 }: ControlPanelProps) {
@@ -476,6 +478,10 @@ export function ControlPanel({
               <button onClick={onExportRaw} disabled={exportDisabled}>
                 <FileImage size={16} aria-hidden="true" />
                 R16
+              </button>
+              <button onClick={onExportTextureMap} disabled={exportDisabled}>
+                <ImageIcon size={16} aria-hidden="true" />
+                Textura
               </button>
               <button onClick={onExportNormalMap} disabled={exportDisabled}>
                 <Grid3X3 size={16} aria-hidden="true" />

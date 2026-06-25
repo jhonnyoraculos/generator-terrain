@@ -19,6 +19,13 @@ interface ExportSettings {
   textureSettings?: TerrainTextureSettings;
 }
 
+const DEFAULT_BAKE_SETTINGS: TerrainTextureSettings = {
+  enabled: true,
+  blendStrength: 0.82,
+  repeat: 9,
+  bakeResolution: 1024,
+};
+
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -30,14 +37,23 @@ export function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function serializeOBJ(terrain: TerrainData, settings: ExportSettings) {
+export function serializeOBJ(
+  terrain: TerrainData,
+  settings: ExportSettings,
+  options: { includeMaterialLib?: boolean } = {},
+) {
   const { resolution, width, depth, heights } = terrain;
   const lines: string[] = [
     '# Terrain Forge OBJ',
     `# seed: ${terrain.params.seed}`,
     `# resolution: ${resolution}`,
-    'o TerrainForge',
   ];
+
+  if (options.includeMaterialLib) {
+    lines.push('mtllib terrain.mtl');
+  }
+
+  lines.push('o TerrainForge');
 
   for (let row = 0; row < resolution; row += 1) {
     const z = (row / (resolution - 1) - 0.5) * depth;
@@ -45,6 +61,14 @@ export function serializeOBJ(terrain: TerrainData, settings: ExportSettings) {
       const x = (col / (resolution - 1) - 0.5) * width;
       const y = heights[row * resolution + col] * settings.verticalExaggeration;
       lines.push(`v ${formatNumber(x)} ${formatNumber(y)} ${formatNumber(z)}`);
+    }
+  }
+
+  for (let row = 0; row < resolution; row += 1) {
+    const v = 1 - row / (resolution - 1);
+    for (let col = 0; col < resolution; col += 1) {
+      const u = col / (resolution - 1);
+      lines.push(`vt ${formatNumber(u)} ${formatNumber(v)}`);
     }
   }
 
@@ -57,6 +81,10 @@ export function serializeOBJ(terrain: TerrainData, settings: ExportSettings) {
     }
   }
 
+  if (options.includeMaterialLib) {
+    lines.push('usemtl TerrainForgeMaterial');
+  }
+
   lines.push('s 1');
   for (let row = 0; row < resolution - 1; row += 1) {
     for (let col = 0; col < resolution - 1; col += 1) {
@@ -64,12 +92,28 @@ export function serializeOBJ(terrain: TerrainData, settings: ExportSettings) {
       const i1 = i0 + 1;
       const i2 = i0 + resolution;
       const i3 = i2 + 1;
-      lines.push(`f ${i0}//${i0} ${i2}//${i2} ${i1}//${i1}`);
-      lines.push(`f ${i1}//${i1} ${i2}//${i2} ${i3}//${i3}`);
+      lines.push(`f ${i0}/${i0}/${i0} ${i2}/${i2}/${i2} ${i1}/${i1}/${i1}`);
+      lines.push(`f ${i1}/${i1}/${i1} ${i2}/${i2}/${i2} ${i3}/${i3}/${i3}`);
     }
   }
 
   return `${lines.join('\n')}\n`;
+}
+
+export function serializeMTL() {
+  return [
+    '# Terrain Forge material',
+    'newmtl TerrainForgeMaterial',
+    'Ka 1.000 1.000 1.000',
+    'Kd 1.000 1.000 1.000',
+    'Ks 0.000 0.000 0.000',
+    'Ns 8',
+    'illum 2',
+    'map_Kd terrain_texture.png',
+    'norm normalmap.png',
+    'bump normalmap.png',
+    '',
+  ].join('\n');
 }
 
 export function createRaw16R16(terrain: TerrainData) {
@@ -139,26 +183,27 @@ export async function createNormalMapPngBlob(terrain: TerrainData, verticalExagg
 }
 
 export async function createGLB(terrain: TerrainData, settings: ExportSettings) {
+  const textureSet = settings.textureSet ?? {};
+  const textureSettings = settings.textureSettings ?? DEFAULT_BAKE_SETTINGS;
   const geometry = createTerrainGeometry(terrain, {
     verticalExaggeration: settings.verticalExaggeration,
     includeVertexColors: settings.heightColors,
   });
   const useTextures =
-    settings.textureSettings?.enabled &&
-    settings.textureSet &&
-    (hasTerrainTextures(settings.textureSet) || Boolean(settings.textureSet.detailNormal));
+    textureSettings.enabled &&
+    (hasTerrainTextures(textureSet) || Boolean(textureSet.detailNormal));
   const bakedTexture =
-    useTextures && settings.textureSet && settings.textureSettings && hasTerrainTextures(settings.textureSet)
+    useTextures && hasTerrainTextures(textureSet)
       ? await createBakedTerrainTexture(
           terrain,
-          settings.textureSet,
-          settings.textureSettings,
+          textureSet,
+          textureSettings,
           settings.verticalExaggeration,
         )
       : null;
   const normalMap =
-    useTextures && settings.textureSet && settings.textureSettings
-      ? await loadDetailNormalTexture(settings.textureSet, settings.textureSettings.repeat).catch(() => null)
+    useTextures
+      ? await loadDetailNormalTexture(textureSet, textureSettings.repeat).catch(() => null)
       : null;
   const material = new THREE.MeshStandardMaterial({
     color: bakedTexture || settings.heightColors ? 0xffffff : 0x8a8d84,
@@ -216,27 +261,33 @@ export async function downloadNormalMapPNG(terrain: TerrainData, verticalExagger
   downloadBlob(blob, 'normalmap.png');
 }
 
+export async function downloadTerrainTexturePNG(terrain: TerrainData, settings: ExportSettings) {
+  const blob = await createBakedTerrainTextureBlob(
+    terrain,
+    settings.textureSet ?? {},
+    settings.textureSettings ?? DEFAULT_BAKE_SETTINGS,
+    settings.verticalExaggeration,
+  );
+  downloadBlob(blob, 'terrain_texture.png');
+}
+
 export async function downloadGLB(terrain: TerrainData, settings: ExportSettings) {
   const glb = await createGLB(terrain, settings);
   downloadBlob(new Blob([glb], { type: 'model/gltf-binary' }), 'terrain.glb');
 }
 
 export async function downloadTerrainZip(terrain: TerrainData, settings: ExportSettings) {
-  const shouldBakeTexture =
-    settings.textureSettings?.enabled &&
-    settings.textureSet &&
-    hasTerrainTextures(settings.textureSet);
+  const textureSet = settings.textureSet ?? {};
+  const textureSettings = settings.textureSettings ?? DEFAULT_BAKE_SETTINGS;
   const [heightmapBlob, normalmapBlob, bakedTextureBlob, glb] = await Promise.all([
     createHeightmapPngBlob(terrain),
     createNormalMapPngBlob(terrain, settings.verticalExaggeration),
-    shouldBakeTexture && settings.textureSet && settings.textureSettings
-      ? createBakedTerrainTextureBlob(
-          terrain,
-          settings.textureSet,
-          settings.textureSettings,
-          settings.verticalExaggeration,
-        )
-      : Promise.resolve(null),
+    createBakedTerrainTextureBlob(
+      terrain,
+      textureSet,
+      textureSettings,
+      settings.verticalExaggeration,
+    ),
     createGLB(terrain, settings),
   ]);
 
@@ -259,7 +310,17 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
       heightmapResolutionRecommended: terrain.stats.unityFriendlyResolution,
     },
     params: terrain.params,
-    textureSettings: settings.textureSettings,
+    uv: {
+      layout: 'single 0..1 terrain UV, shared by terrain_texture.png and normalmap.png',
+      origin: 'OBJ vt V is flipped to match exported PNG orientation',
+    },
+    textureBake: {
+      diffuse: 'terrain_texture.png',
+      normal: 'normalmap.png',
+      material: 'terrain.mtl',
+      mode: 'height and slope blended single texture',
+    },
+    textureSettings,
     textures: settings.textureSet
       ? Object.fromEntries(
           Object.entries(settings.textureSet).map(([slot, asset]) => [
@@ -271,20 +332,18 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
   };
 
   const files: Record<string, Uint8Array> = {
-    'terrain.obj': strToU8(serializeOBJ(terrain, settings)),
+    'terrain.obj': strToU8(serializeOBJ(terrain, settings, { includeMaterialLib: true })),
+    'terrain.mtl': strToU8(serializeMTL()),
     'terrain.glb': new Uint8Array(glb),
     'heightmap.png': new Uint8Array(await heightmapBlob.arrayBuffer()),
     'heightmap.r16': new Uint8Array(createRaw16R16(terrain)),
     'normalmap.png': new Uint8Array(await normalmapBlob.arrayBuffer()),
+    'terrain_texture.png': new Uint8Array(await bakedTextureBlob.arrayBuffer()),
     'metadata.json': strToU8(JSON.stringify(metadata, null, 2)),
   };
 
-  if (bakedTextureBlob) {
-    files['terrain_texture.png'] = new Uint8Array(await bakedTextureBlob.arrayBuffer());
-  }
-
-  if (settings.textureSet) {
-    const textureEntries = Object.entries(settings.textureSet);
+  if (Object.keys(textureSet).length > 0) {
+    const textureEntries = Object.entries(textureSet);
     await Promise.all(
       textureEntries.map(async ([slot, asset]) => {
         if (!asset?.file) {

@@ -8,6 +8,7 @@ import {
   downloadNormalMapPNG,
   downloadOBJ,
   downloadR16,
+  downloadTerrainTexturePNG,
   downloadTerrainZip,
 } from './exporters/exporters';
 import { DEFAULT_TERRAIN_PARAMS, TERRAIN_PRESETS } from './presets/presets';
@@ -266,6 +267,9 @@ export function App() {
         onExportGLB={() => runExport('GLB', () => downloadGLB(terrain!, exportSettings))}
         onExportHeightmap={() => runExport('Heightmap', () => downloadHeightmapPNG(terrain!))}
         onExportRaw={() => runExport('R16', () => downloadR16(terrain!))}
+        onExportTextureMap={() =>
+          runExport('Textura', () => downloadTerrainTexturePNG(terrain!, exportSettings))
+        }
         onExportNormalMap={() =>
           runExport('Normal map', () => downloadNormalMapPNG(terrain!, params.verticalExaggeration))
         }

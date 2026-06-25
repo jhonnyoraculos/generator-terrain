@@ -49,12 +49,13 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 
 ## O que o app exporta
 
-- `terrain.obj`: malha triangulada, centralizada na origem e em escala real.
+- `terrain.obj`: malha triangulada, centralizada na origem, em escala real e com UVs `0..1`.
+- `terrain.mtl`: material OBJ que aponta para a textura bakeada e o normal map.
 - `terrain.glb`: versao GLB com material simples e cores por altura quando ativadas.
 - `heightmap.png`: heightmap 8-bit para preview e ferramentas gerais.
 - `heightmap.r16`: RAW 16-bit little-endian normalizado de `0` a `65535`.
 - `normalmap.png`: normal map gerado a partir da malha atual.
-- `terrain_texture.png`: textura bakeada do terreno quando a aba Texturas estiver ativa.
+- `terrain_texture.png`: textura unica bakeada do terreno, com as camadas misturadas por altura e inclinacao.
 - `textures/`: texturas originais carregadas pelo usuario quando exportadas no ZIP.
 - `metadata.json`: seed, dimensoes, resolucao, altura, exagero vertical e parametros usados.
 - `terrain-forge-export.zip`: pacote com todos os arquivos acima.
@@ -92,7 +93,14 @@ A aba `Texturas` permite carregar imagens locais para:
 - neve / topo claro
 - normal de detalhe
 
-O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo entra no ZIP e tambem pode ser incorporado no GLB.
+O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo usa o UV `0..1` da propria malha, entra no ZIP e tambem pode ser incorporado no GLB.
+
+O ZIP tambem inclui `terrain.mtl`, que referencia:
+
+- `terrain_texture.png` como textura difusa.
+- `normalmap.png` como normal/bump map geral do terreno.
+
+Mesmo sem carregar texturas, o app gera automaticamente uma textura unica baseada nas cores por altura e no relevo.
 
 ## Como importar na Unity
 
@@ -100,8 +108,9 @@ O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_
 
 1. Exporte `terrain.obj` ou o ZIP.
 2. Arraste `terrain.obj` para a pasta `Assets` do projeto Unity.
-3. Selecione o asset e confira a escala. O OBJ sai centralizado na origem, com `1 unidade do app = 1 unidade Unity`.
-4. Crie um material na Unity e aplique na malha, ou use o GLB se quiser preservar uma pre-visualizacao de cores por altura.
+3. Se usar o ZIP, mantenha `terrain.obj`, `terrain.mtl`, `terrain_texture.png` e `normalmap.png` na mesma pasta.
+4. Selecione o asset e confira a escala. O OBJ sai centralizado na origem, com `1 unidade do app = 1 unidade Unity`.
+5. Crie um material na Unity usando `terrain_texture.png` como Base Map e `normalmap.png` como Normal Map.
 
 ### Importar heightmap R16 em Terrain
 

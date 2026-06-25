@@ -177,7 +177,10 @@ async function prepareTexture(
     return createSolidTexture(fallbackColor);
   }
 
-  const image = await loadImage(asset.url);
+  const image = await loadImage(asset.url).catch(() => null);
+  if (!image) {
+    return createSolidTexture(fallbackColor);
+  }
   const canvas = document.createElement('canvas');
   canvas.width = image.naturalWidth || image.width;
   canvas.height = image.naturalHeight || image.height;
