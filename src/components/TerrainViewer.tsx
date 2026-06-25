@@ -8,9 +8,9 @@ import {
 import type { MutableRefObject } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { TerrainData, ViewMode } from '../types/terrain';
+import type { TerrainData, TerrainLodSettings, ViewMode } from '../types/terrain';
 import type { TerrainTextureSettings, TerrainTextureSet } from '../types/textures';
-import { createTerrainGeometry } from '../terrain/geometry';
+import { createTerrainGeometry, estimateLodGeometryStats } from '../terrain/geometry';
 import {
   createBakedTerrainTexture,
   hasTerrainTextures,
@@ -31,6 +31,7 @@ interface TerrainViewerProps {
   verticalExaggeration: number;
   textureSet: TerrainTextureSet;
   textureSettings: TerrainTextureSettings;
+  lodSettings: TerrainLodSettings;
 }
 
 interface PerformanceSnapshot {
@@ -38,6 +39,18 @@ interface PerformanceSnapshot {
   frameMs: number;
   drawCalls: number;
   rendererTriangles: number;
+  activeLod: number;
+  visibleVertices: number;
+  visibleTriangles: number;
+}
+
+interface LodLevelInfo {
+  level: number;
+  step: number;
+  distance: number;
+  vertices: number;
+  triangles: number;
+  resolution: number;
 }
 
 export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>(
@@ -50,6 +63,7 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
       verticalExaggeration,
       textureSet,
       textureSettings,
+      lodSettings,
     },
     ref,
   ) => {
@@ -58,7 +72,8 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
     const sceneRef = useRef<THREE.Scene | null>(null);
     const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
     const controlsRef = useRef<OrbitControls | null>(null);
-    const meshRef = useRef<THREE.Mesh | null>(null);
+    const terrainObjectRef = useRef<THREE.Object3D | null>(null);
+    const lodLevelsRef = useRef<LodLevelInfo[]>([]);
     const gridRef = useRef<THREE.GridHelper | null>(null);
     const frameRef = useRef<number | null>(null);
     const hasFramedRef = useRef(false);
@@ -70,6 +85,9 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
       frameMs: 0,
       drawCalls: 0,
       rendererTriangles: 0,
+      activeLod: 0,
+      visibleVertices: 0,
+      visibleTriangles: 0,
     });
 
     useImperativeHandle(ref, () => ({
@@ -153,11 +171,16 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
 
         const elapsed = now - lastSampleTime;
         if (elapsed >= 500) {
+          const activeLod = getActiveLodLevel(terrainObjectRef.current);
+          const activeLevelInfo = lodLevelsRef.current[activeLod] ?? lodLevelsRef.current[0];
           setPerformanceSnapshot({
             fps: Math.round((frameCounter * 1000) / elapsed),
             frameMs: Number(frameMs.toFixed(1)),
             drawCalls: renderer.info.render.calls,
             rendererTriangles: renderer.info.render.triangles,
+            activeLod,
+            visibleVertices: activeLevelInfo?.vertices ?? 0,
+            visibleTriangles: activeLevelInfo?.triangles ?? 0,
           });
           frameCounter = 0;
           lastSampleTime = now;
@@ -174,7 +197,7 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
           window.cancelAnimationFrame(frameRef.current);
         }
         resizeObserver.disconnect();
-        disposeMesh(meshRef.current);
+        disposeTerrainObject(terrainObjectRef.current);
         gridRef.current?.geometry.dispose();
         const gridMaterial = gridRef.current?.material;
         if (Array.isArray(gridMaterial)) {
@@ -195,29 +218,37 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
         return;
       }
 
-      disposeMesh(meshRef.current);
-      meshRef.current = null;
+      disposeTerrainObject(terrainObjectRef.current);
+      terrainObjectRef.current = null;
+      lodLevelsRef.current = [];
 
       if (!terrain) {
         return;
       }
 
-      const geometry = createTerrainGeometry(terrain, {
+      const terrainObject = createTerrainObject({
+        terrain,
+        viewMode,
+        heightColors,
         verticalExaggeration,
-        includeVertexColors: viewMode === 'shaded' && heightColors,
+        lodSettings,
       });
-      const material = createMaterial(viewMode, heightColors);
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      meshRef.current = mesh;
-      scene.add(mesh);
+      terrainObjectRef.current = terrainObject.object;
+      lodLevelsRef.current = terrainObject.levels;
+      setPerformanceSnapshot((current) => ({
+        ...current,
+        activeLod: 0,
+        visibleVertices: terrainObject.levels[0]?.vertices ?? 0,
+        visibleTriangles: terrainObject.levels[0]?.triangles ?? 0,
+      }));
+      scene.add(terrainObject.object);
       const materialJob = materialJobRef.current + 1;
       materialJobRef.current = materialJob;
 
       applyUploadedTextureMaterial({
         jobId: materialJob,
-        mesh,
+        object: terrainObject.object,
+        meshes: terrainObject.meshes,
         terrain,
         viewMode,
         heightColors,
@@ -231,7 +262,15 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
         frameCamera(terrain, verticalExaggeration);
         hasFramedRef.current = true;
       }
-    }, [terrain, viewMode, heightColors, verticalExaggeration, textureSet, textureSettings]);
+    }, [
+      terrain,
+      viewMode,
+      heightColors,
+      verticalExaggeration,
+      textureSet,
+      textureSettings,
+      lodSettings,
+    ]);
 
     useEffect(() => {
       const scene = sceneRef.current;
@@ -331,6 +370,20 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
               <dd>{terrain?.stats.triangles.toLocaleString('pt-BR') ?? '-'}</dd>
             </div>
             <div>
+              <dt>LOD ativo</dt>
+              <dd>
+                {lodSettings.enabled && terrain ? `LOD ${performanceSnapshot.activeLod}` : 'Full'}
+              </dd>
+            </div>
+            <div>
+              <dt>LOD vertices</dt>
+              <dd>{performanceSnapshot.visibleVertices.toLocaleString('pt-BR')}</dd>
+            </div>
+            <div>
+              <dt>LOD tris</dt>
+              <dd>{performanceSnapshot.visibleTriangles.toLocaleString('pt-BR')}</dd>
+            </div>
+            <div>
               <dt>Render tris</dt>
               <dd>{performanceSnapshot.rendererTriangles.toLocaleString('pt-BR')}</dd>
             </div>
@@ -350,6 +403,118 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
 );
 
 TerrainViewer.displayName = 'TerrainViewer';
+
+function createTerrainObject({
+  terrain,
+  viewMode,
+  heightColors,
+  verticalExaggeration,
+  lodSettings,
+}: {
+  terrain: TerrainData;
+  viewMode: ViewMode;
+  heightColors: boolean;
+  verticalExaggeration: number;
+  lodSettings: TerrainLodSettings;
+}) {
+  const includeVertexColors = viewMode === 'shaded' && heightColors;
+  const sharedMaterial = createMaterial(viewMode, heightColors);
+  const steps = lodSettings.enabled
+    ? [1, 2, 4, 8].slice(0, Math.max(1, Math.min(4, Math.round(lodSettings.maxLevels))))
+    : [1];
+  const nearDistance = Math.max(1, lodSettings.nearDistance);
+  const midDistance = Math.max(nearDistance + 1, lodSettings.midDistance);
+  const farDistance = Math.max(midDistance + 1, lodSettings.farDistance);
+  const distances = [0, nearDistance, midDistance, farDistance];
+  const meshes: THREE.Mesh[] = [];
+  const levels: LodLevelInfo[] = [];
+
+  if (steps.length === 1) {
+    const mesh = createLodMesh(terrain, {
+      step: 1,
+      material: sharedMaterial,
+      includeVertexColors,
+      verticalExaggeration,
+    });
+    meshes.push(mesh);
+    levels.push(createLodLevelInfo(terrain.resolution, 0, 1, 0));
+    return {
+      object: mesh,
+      meshes,
+      levels,
+    };
+  }
+
+  const lod = new THREE.LOD();
+  lod.name = 'TerrainForge_LOD';
+  steps.forEach((step, index) => {
+    const mesh = createLodMesh(terrain, {
+      step,
+      material: sharedMaterial,
+      includeVertexColors,
+      verticalExaggeration,
+    });
+    mesh.name = `TerrainForge_LOD${index}`;
+    meshes.push(mesh);
+    levels.push(createLodLevelInfo(terrain.resolution, index, step, distances[index] ?? 0));
+    lod.addLevel(mesh, distances[index] ?? 0);
+  });
+
+  return {
+    object: lod,
+    meshes,
+    levels,
+  };
+}
+
+function createLodMesh(
+  terrain: TerrainData,
+  {
+    step,
+    material,
+    includeVertexColors,
+    verticalExaggeration,
+  }: {
+    step: number;
+    material: THREE.Material;
+    includeVertexColors: boolean;
+    verticalExaggeration: number;
+  },
+) {
+  const geometry = createTerrainGeometry(terrain, {
+    verticalExaggeration,
+    includeVertexColors,
+    lodStep: step,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function createLodLevelInfo(
+  resolution: number,
+  level: number,
+  step: number,
+  distance: number,
+): LodLevelInfo {
+  const stats = estimateLodGeometryStats(resolution, step);
+  return {
+    level,
+    step,
+    distance,
+    vertices: stats.vertices,
+    triangles: stats.triangles,
+    resolution: stats.lodResolution,
+  };
+}
+
+function getActiveLodLevel(object: THREE.Object3D | null) {
+  if (object instanceof THREE.LOD) {
+    return object.getCurrentLevel();
+  }
+  return 0;
+}
 
 function createMaterial(viewMode: ViewMode, heightColors: boolean) {
   if (viewMode === 'wireframe') {
@@ -378,22 +543,42 @@ function createMaterial(viewMode: ViewMode, heightColors: boolean) {
   });
 }
 
-function disposeMesh(mesh: THREE.Mesh | null) {
-  if (!mesh) {
+function disposeTerrainObject(object: THREE.Object3D | null) {
+  if (!object) {
     return;
   }
 
-  mesh.removeFromParent();
-  mesh.geometry.dispose();
-  disposeMaterial(mesh.material);
+  object.removeFromParent();
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return;
+    }
+    geometries.add(child.geometry);
+    collectMaterials(child.material, materials);
+  });
+
+  geometries.forEach((geometry) => geometry.dispose());
+  materials.forEach((material) => disposeSingleMaterial(material));
 }
 
 function disposeMaterial(material: THREE.Material | THREE.Material[]) {
+  const materials = new Set<THREE.Material>();
+  collectMaterials(material, materials);
+  materials.forEach((entry) => disposeSingleMaterial(entry));
+}
+
+function collectMaterials(
+  material: THREE.Material | THREE.Material[],
+  target: Set<THREE.Material>,
+) {
   if (Array.isArray(material)) {
-    material.forEach((entry) => disposeSingleMaterial(entry));
-  } else {
-    disposeSingleMaterial(material);
+    material.forEach((entry) => target.add(entry));
+    return;
   }
+  target.add(material);
 }
 
 function disposeSingleMaterial(material: THREE.Material) {
@@ -405,7 +590,8 @@ function disposeSingleMaterial(material: THREE.Material) {
 
 async function applyUploadedTextureMaterial({
   jobId,
-  mesh,
+  object,
+  meshes,
   terrain,
   viewMode,
   heightColors,
@@ -415,7 +601,8 @@ async function applyUploadedTextureMaterial({
   materialJobRef,
 }: {
   jobId: number;
-  mesh: THREE.Mesh;
+  object: THREE.Object3D;
+  meshes: THREE.Mesh[];
   terrain: TerrainData;
   viewMode: ViewMode;
   heightColors: boolean;
@@ -440,7 +627,7 @@ async function applyUploadedTextureMaterial({
     loadDetailNormalTexture(textureSet, textureSettings.repeat).catch(() => null),
   ]);
 
-  if (jobId !== materialJobRef.current || mesh.parent === null) {
+  if (jobId !== materialJobRef.current || object.parent === null) {
     bakedTexture?.dispose();
     normalMap?.dispose();
     return;
@@ -455,7 +642,10 @@ async function applyUploadedTextureMaterial({
     metalness: 0,
     vertexColors: !bakedTexture && heightColors,
   });
-  const previousMaterial = mesh.material;
-  mesh.material = nextMaterial;
-  disposeMaterial(previousMaterial);
+  const previousMaterials = new Set<THREE.Material>();
+  meshes.forEach((mesh) => {
+    collectMaterials(mesh.material, previousMaterials);
+    mesh.material = nextMaterial;
+  });
+  previousMaterials.forEach((material) => disposeSingleMaterial(material));
 }

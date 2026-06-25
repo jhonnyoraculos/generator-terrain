@@ -71,6 +71,17 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 - `falloff nas bordas`: cria ilhas ou terrenos isolados.
 - `exagero vertical`: multiplica a altura usada na visualizacao e exportacao de malha.
 
+## LOD no preview
+
+O preview 3D usa um sistema de LOD dinamico quando ativado. Ele cria versoes reduzidas da malha para distancias maiores da camera, melhorando FPS em terrenos densos.
+
+- LOD 0: malha completa.
+- LOD 1: aproximadamente metade da resolucao por eixo.
+- LOD 2: aproximadamente um quarto da resolucao por eixo.
+- LOD 3: malha distante mais leve.
+
+Isso afeta apenas a visualizacao no navegador. OBJ, GLB, heightmap e RAW continuam exportando a resolucao configurada do terreno.
+
 ## Texturas
 
 A aba `Texturas` permite carregar imagens locais para:
@@ -138,5 +149,6 @@ Use esses valores para reconstruir a escala no Terrain da Unity ou para repetir 
 
 - A geracao roda em Web Worker para manter a interface responsiva.
 - Sliders usam debounce antes de recalcular o terreno.
+- O preview tem LOD dinamico e overlay de FPS, vertices, triangulos e draw calls.
 - Resolucao `257` costuma ser um bom equilibrio para PC.
 - Resolucao `513` gera mais de 263 mil vertices e pode demorar para exportar OBJ/GLB/ZIP.

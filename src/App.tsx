@@ -14,6 +14,7 @@ import { DEFAULT_TERRAIN_PARAMS, TERRAIN_PRESETS } from './presets/presets';
 import { generateTerrain, sanitizeTerrainParams } from './terrain/generator';
 import type {
   TerrainData,
+  TerrainLodSettings,
   TerrainParams,
   TerrainWorkerResponse,
   ViewMode,
@@ -32,6 +33,14 @@ const DEFAULT_TEXTURE_SETTINGS: TerrainTextureSettings = {
   bakeResolution: 1024,
 };
 
+const DEFAULT_LOD_SETTINGS: TerrainLodSettings = {
+  enabled: true,
+  nearDistance: 360,
+  midDistance: 760,
+  farDistance: 1250,
+  maxLevels: 4,
+};
+
 export function App() {
   const [params, setParams] = useState<TerrainParams>(DEFAULT_TERRAIN_PARAMS);
   const [terrain, setTerrain] = useState<TerrainData | null>(null);
@@ -40,6 +49,7 @@ export function App() {
   const [textureSet, setTextureSet] = useState<TerrainTextureSet>({});
   const [textureSettings, setTextureSettings] =
     useState<TerrainTextureSettings>(DEFAULT_TEXTURE_SETTINGS);
+  const [lodSettings, setLodSettings] = useState<TerrainLodSettings>(DEFAULT_LOD_SETTINGS);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [selectedPresetId, setSelectedPresetId] = useState('');
@@ -174,6 +184,7 @@ export function App() {
     setParams(DEFAULT_TERRAIN_PARAMS);
     setViewMode('shaded');
     setShowGrid(true);
+    setLodSettings(DEFAULT_LOD_SETTINGS);
   };
 
   const handleTextureFile = (slot: TextureLayerKey, file: File | null) => {
@@ -237,6 +248,7 @@ export function App() {
         showGrid={showGrid}
         textureSet={textureSet}
         textureSettings={textureSettings}
+        lodSettings={lodSettings}
         generating={generating}
         exporting={exporting}
         warning={warning}
@@ -246,6 +258,7 @@ export function App() {
         onGridChange={setShowGrid}
         onTextureSettingsChange={setTextureSettings}
         onTextureFile={handleTextureFile}
+        onLodSettingsChange={setLodSettings}
         onGenerate={() => requestGenerate(params)}
         onRandomSeed={handleRandomSeed}
         onReset={handleReset}
@@ -294,6 +307,7 @@ export function App() {
             verticalExaggeration={params.verticalExaggeration}
             textureSet={textureSet}
             textureSettings={textureSettings}
+            lodSettings={lodSettings}
           />
           {generating ? (
             <div className="viewer-badge">

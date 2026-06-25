@@ -6,6 +6,7 @@ import { clamp, lerp, smoothstep } from './noise';
 export interface TerrainGeometryOptions {
   verticalExaggeration: number;
   includeVertexColors: boolean;
+  lodStep?: number;
 }
 
 const COLOR_LOW = [0.12, 0.32, 0.19] as const;
@@ -17,22 +18,26 @@ const COLOR_SNOW = [0.9, 0.92, 0.88] as const;
 
 export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeometryOptions) {
   const { width, depth, resolution, heights } = terrain;
-  const vertexCount = resolution * resolution;
+  const coords = createSampleCoordinates(resolution, options.lodStep ?? 1);
+  const lodResolution = coords.length;
+  const vertexCount = lodResolution * lodResolution;
   const positions = new Float32Array(vertexCount * 3);
   const colors = new Float32Array(vertexCount * 3);
   const uvs = new Float32Array(vertexCount * 2);
-  const indexCount = (resolution - 1) * (resolution - 1) * 6;
+  const indexCount = (lodResolution - 1) * (lodResolution - 1) * 6;
   const indices =
     vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
 
   let vertexOffset = 0;
   let uvOffset = 0;
-  for (let row = 0; row < resolution; row += 1) {
+  for (let lodRow = 0; lodRow < lodResolution; lodRow += 1) {
+    const row = coords[lodRow];
     const v = row / (resolution - 1);
     const z = (v - 0.5) * depth;
 
-    for (let col = 0; col < resolution; col += 1) {
+    for (let lodCol = 0; lodCol < lodResolution; lodCol += 1) {
+      const col = coords[lodCol];
       const u = col / (resolution - 1);
       const index = row * resolution + col;
       const x = (u - 0.5) * width;
@@ -55,11 +60,11 @@ export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeom
   }
 
   let indexOffset = 0;
-  for (let row = 0; row < resolution - 1; row += 1) {
-    for (let col = 0; col < resolution - 1; col += 1) {
-      const i0 = row * resolution + col;
+  for (let row = 0; row < lodResolution - 1; row += 1) {
+    for (let col = 0; col < lodResolution - 1; col += 1) {
+      const i0 = row * lodResolution + col;
       const i1 = i0 + 1;
-      const i2 = i0 + resolution;
+      const i2 = i0 + lodResolution;
       const i3 = i2 + 1;
 
       indices[indexOffset] = i0;
@@ -85,6 +90,15 @@ export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeom
   }
 
   return geometry;
+}
+
+export function estimateLodGeometryStats(resolution: number, lodStep: number) {
+  const lodResolution = createSampleCoordinates(resolution, lodStep).length;
+  return {
+    lodResolution,
+    vertices: lodResolution * lodResolution,
+    triangles: (lodResolution - 1) * (lodResolution - 1) * 2,
+  };
 }
 
 export function getHeightColor(height: number, slope: number): [number, number, number] {
@@ -113,4 +127,17 @@ function mix(
   t: number,
 ): [number, number, number] {
   return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+}
+
+function createSampleCoordinates(resolution: number, step: number) {
+  const safeStep = Math.max(1, Math.round(step));
+  const coords: number[] = [];
+  for (let index = 0; index < resolution; index += safeStep) {
+    coords.push(index);
+  }
+  const last = resolution - 1;
+  if (coords[coords.length - 1] !== last) {
+    coords.push(last);
+  }
+  return coords;
 }

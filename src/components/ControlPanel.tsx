@@ -18,7 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { TerrainParams, TerrainStats, ViewMode } from '../types/terrain';
+import type { TerrainLodSettings, TerrainParams, TerrainStats, ViewMode } from '../types/terrain';
 import type { TerrainPreset } from '../types/terrain';
 import type {
   TerrainTextureSettings,
@@ -37,6 +37,7 @@ interface ControlPanelProps {
   showGrid: boolean;
   textureSet: TerrainTextureSet;
   textureSettings: TerrainTextureSettings;
+  lodSettings: TerrainLodSettings;
   generating: boolean;
   exporting: string | null;
   warning?: string;
@@ -46,6 +47,7 @@ interface ControlPanelProps {
   onGridChange: (showGrid: boolean) => void;
   onTextureSettingsChange: (settings: TerrainTextureSettings) => void;
   onTextureFile: (slot: TextureLayerKey, file: File | null) => void;
+  onLodSettingsChange: (settings: TerrainLodSettings) => void;
   onGenerate: () => void;
   onRandomSeed: () => void;
   onReset: () => void;
@@ -76,6 +78,7 @@ export function ControlPanel({
   showGrid,
   textureSet,
   textureSettings,
+  lodSettings,
   generating,
   exporting,
   warning,
@@ -85,6 +88,7 @@ export function ControlPanel({
   onGridChange,
   onTextureSettingsChange,
   onTextureFile,
+  onLodSettingsChange,
   onGenerate,
   onRandomSeed,
   onReset,
@@ -104,6 +108,12 @@ export function ControlPanel({
     value: TerrainTextureSettings[K],
   ) => {
     onTextureSettingsChange({ ...textureSettings, [key]: value });
+  };
+  const updateLodSettings = <K extends keyof TerrainLodSettings>(
+    key: K,
+    value: TerrainLodSettings[K],
+  ) => {
+    onLodSettingsChange({ ...lodSettings, [key]: value });
   };
   const exportDisabled = !stats || generating || Boolean(exporting);
 
@@ -196,6 +206,50 @@ export function ControlPanel({
               step={0.05}
               value={params.verticalExaggeration}
               onChange={(value) => update('verticalExaggeration', value)}
+            />
+            <ToggleField
+              label="LOD dinamico"
+              checked={lodSettings.enabled}
+              onChange={(value) => updateLodSettings('enabled', value)}
+            />
+            <SliderField
+              label="LOD perto"
+              min={80}
+              max={900}
+              step={10}
+              value={lodSettings.nearDistance}
+              suffix="u"
+              integer
+              onChange={(value) => updateLodSettings('nearDistance', value)}
+            />
+            <SliderField
+              label="LOD medio"
+              min={200}
+              max={1600}
+              step={10}
+              value={lodSettings.midDistance}
+              suffix="u"
+              integer
+              onChange={(value) => updateLodSettings('midDistance', value)}
+            />
+            <SliderField
+              label="LOD longe"
+              min={400}
+              max={2600}
+              step={10}
+              value={lodSettings.farDistance}
+              suffix="u"
+              integer
+              onChange={(value) => updateLodSettings('farDistance', value)}
+            />
+            <SliderField
+              label="Niveis LOD"
+              min={1}
+              max={4}
+              step={1}
+              value={lodSettings.maxLevels}
+              integer
+              onChange={(value) => updateLodSettings('maxLevels', value)}
             />
           </Section>
 

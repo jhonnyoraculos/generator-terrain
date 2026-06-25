@@ -30,6 +30,14 @@ export interface TerrainStats {
   unityFriendlyResolution: boolean;
 }
 
+export interface TerrainLodSettings {
+  enabled: boolean;
+  nearDistance: number;
+  midDistance: number;
+  farDistance: number;
+  maxLevels: number;
+}
+
 export interface TerrainData {
   width: number;
   depth: number;
