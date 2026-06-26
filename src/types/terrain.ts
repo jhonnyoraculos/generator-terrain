@@ -22,6 +22,12 @@ export interface TerrainParams {
   verticalExaggeration: number;
 }
 
+export interface TerrainMaskData {
+  enabled: boolean;
+  resolution: number;
+  values: Float32Array;
+}
+
 export interface TerrainStats {
   vertices: number;
   triangles: number;
@@ -51,6 +57,7 @@ export interface TerrainData {
   heights: Float32Array;
   params: TerrainParams;
   stats: TerrainStats;
+  terrainMask?: TerrainMaskData;
 }
 
 export interface TerrainPreset {
@@ -62,6 +69,7 @@ export interface TerrainPreset {
 export interface TerrainWorkerRequest {
   id: number;
   params: TerrainParams;
+  terrainMask?: TerrainMaskData;
 }
 
 export interface TerrainWorkerResponse {

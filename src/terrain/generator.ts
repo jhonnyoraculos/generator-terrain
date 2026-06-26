@@ -1,4 +1,4 @@
-import type { TerrainData, TerrainParams, TerrainStats } from '../types/terrain';
+import type { TerrainData, TerrainMaskData, TerrainParams, TerrainStats } from '../types/terrain';
 import {
   SimplexNoise2D,
   clamp,
@@ -40,8 +40,12 @@ export function isUnityFriendlyResolution(resolution: number) {
   return value > 0 && (value & (value - 1)) === 0;
 }
 
-export function generateTerrain(inputParams: TerrainParams): TerrainData {
+export function generateTerrain(
+  inputParams: TerrainParams,
+  inputTerrainMask?: TerrainMaskData,
+): TerrainData {
   const params = sanitizeTerrainParams(inputParams);
+  const terrainMask = sanitizeTerrainMask(inputTerrainMask);
   const resolution = params.resolution;
   const count = resolution * resolution;
   const noise = new SimplexNoise2D(params.seed);
@@ -89,20 +93,33 @@ export function generateTerrain(inputParams: TerrainParams): TerrainData {
         1 - Math.abs(noise.noise2D(sx * 0.85 - 203.4, sz * 0.85 + 73.7)),
         2.8,
       );
+      const reliefMask = sampleTerrainMask(terrainMask, x01, z01);
+      const reliefStrength = smoothstep(0.02, 0.98, reliefMask);
+      const mountainMask = lerp(0.04, 1, reliefStrength);
+      const hillMask = lerp(0.1, 1, reliefStrength);
+      const valleyMask = lerp(0.28, 1, reliefStrength);
       const highlandMask = smoothstep(0.34, 0.82, continent);
-      const plainMask = params.plainLevel * Math.pow(1 - smoothstep(0.18, 0.72, continent), 1.8);
+      const plainMask = clamp(
+        params.plainLevel * Math.pow(1 - smoothstep(0.18, 0.72, continent), 1.8) +
+          (1 - reliefStrength) * 0.7,
+        0,
+        0.95,
+      );
 
       let height =
         continent * 0.25 +
-        Math.pow(hills, 1.4) * params.hillIntensity * 0.24 +
-        Math.pow(macroRidge, 2.15) * params.mountainIntensity * (0.48 + highlandMask * 0.72) +
-        Math.pow(secondaryRidge, 2.5) * params.mountainIntensity * 0.18 -
-        valleyLines * params.valleyStrength * (0.16 + highlandMask * 0.34);
+        Math.pow(hills, 1.4) * params.hillIntensity * 0.24 * hillMask +
+        Math.pow(macroRidge, 2.15) *
+          params.mountainIntensity *
+          (0.48 + highlandMask * 0.72) *
+          mountainMask +
+        Math.pow(secondaryRidge, 2.5) * params.mountainIntensity * 0.18 * mountainMask -
+        valleyLines * params.valleyStrength * (0.16 + highlandMask * 0.34) * valleyMask;
 
       height = lerp(height, height * 0.22 + continent * 0.06, plainMask);
 
       const micro = fbm2D(noise, sx * 6.2 + 7.7, sz * 6.2 - 41.2, 3, 0.5, 2.2);
-      height += micro * params.randomness * 0.075;
+      height += micro * params.randomness * 0.075 * lerp(0.25, 1, reliefStrength);
 
       if (params.edgeFalloff) {
         const aspectX = params.width >= params.depth ? params.depth / params.width : 1;
@@ -131,7 +148,51 @@ export function generateTerrain(inputParams: TerrainParams): TerrainData {
     heights,
     params,
     stats,
+    terrainMask,
   };
+}
+
+function sanitizeTerrainMask(mask?: TerrainMaskData) {
+  if (!mask?.enabled) {
+    return undefined;
+  }
+
+  const resolution = Math.round(clamp(mask.resolution, 2, 512));
+  if (mask.values.length !== resolution * resolution) {
+    return undefined;
+  }
+
+  const values = new Float32Array(mask.values.length);
+  for (let index = 0; index < mask.values.length; index += 1) {
+    values[index] = clamp(mask.values[index], 0, 1);
+  }
+
+  return {
+    enabled: true,
+    resolution,
+    values,
+  };
+}
+
+function sampleTerrainMask(mask: TerrainMaskData | undefined, u: number, v: number) {
+  if (!mask) {
+    return 1;
+  }
+
+  const max = mask.resolution - 1;
+  const x = clamp(u, 0, 1) * max;
+  const y = clamp(v, 0, 1) * max;
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = Math.min(max, x0 + 1);
+  const y1 = Math.min(max, y0 + 1);
+  const tx = x - x0;
+  const ty = y - y0;
+  const a = mask.values[y0 * mask.resolution + x0];
+  const b = mask.values[y0 * mask.resolution + x1];
+  const c = mask.values[y1 * mask.resolution + x0];
+  const d = mask.values[y1 * mask.resolution + x1];
+  return lerp(lerp(a, b, tx), lerp(c, d, tx), ty);
 }
 
 function normalizeInPlace(heights: Float32Array, targetMax: number) {

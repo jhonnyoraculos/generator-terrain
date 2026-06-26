@@ -14,6 +14,8 @@ export interface TerrainTextureSettings {
   enabled: boolean;
   blendStrength: number;
   repeat: number;
+  repeatX: number;
+  repeatZ: number;
   bakeResolution: number;
   terrainNormalEnabled: boolean;
   terrainNormalStrength: number;

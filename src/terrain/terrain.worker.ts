@@ -8,7 +8,7 @@ const worker = self as unknown as {
 
 worker.onmessage = ({ data }: MessageEvent<TerrainWorkerRequest>) => {
   try {
-    const terrain = generateTerrain(data.params);
+    const terrain = generateTerrain(data.params, data.terrainMask);
     const response: TerrainWorkerResponse = {
       id: data.id,
       terrain,

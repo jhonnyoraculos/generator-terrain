@@ -1,7 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import type { TerrainData } from '../types/terrain';
+import type { TerrainData, TerrainMaskData } from '../types/terrain';
 import type { TerrainTextureSettings, TerrainTextureSet } from '../types/textures';
 import { createTerrainGeometry } from '../terrain/geometry';
 import { computeTerrainNormal } from '../terrain/normals';
@@ -25,6 +25,8 @@ const DEFAULT_BAKE_SETTINGS: TerrainTextureSettings = {
   enabled: true,
   blendStrength: 0.82,
   repeat: 9,
+  repeatX: 1,
+  repeatZ: 1,
   bakeResolution: 1024,
   terrainNormalEnabled: true,
   terrainNormalStrength: 0.72,
@@ -151,6 +153,29 @@ export async function createHeightmapPngBlob(terrain: TerrainData) {
   for (let i = 0; i < terrain.heights.length; i += 1) {
     const value = Math.round(((terrain.heights[i] - terrain.stats.heightMin) / range) * 255);
     const offset = i * 4;
+    image.data[offset] = value;
+    image.data[offset + 1] = value;
+    image.data[offset + 2] = value;
+    image.data[offset + 3] = 255;
+  }
+
+  context.putImageData(image, 0, 0);
+  return canvasToPngBlob(canvas);
+}
+
+export async function createTerrainMaskPngBlob(mask: TerrainMaskData) {
+  const canvas = document.createElement('canvas');
+  canvas.width = mask.resolution;
+  canvas.height = mask.resolution;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Canvas 2D indisponivel para exportar mascara.');
+  }
+
+  const image = context.createImageData(mask.resolution, mask.resolution);
+  for (let index = 0; index < mask.values.length; index += 1) {
+    const value = Math.round(Math.max(0, Math.min(1, mask.values[index])) * 255);
+    const offset = index * 4;
     image.data[offset] = value;
     image.data[offset + 1] = value;
     image.data[offset + 2] = value;
@@ -292,6 +317,8 @@ export async function downloadGLB(terrain: TerrainData, settings: ExportSettings
 export async function downloadTerrainZip(terrain: TerrainData, settings: ExportSettings) {
   const textureSet = settings.textureSet ?? {};
   const textureSettings = settings.textureSettings ?? DEFAULT_BAKE_SETTINGS;
+  const maskBlob =
+    terrain.terrainMask?.enabled ? await createTerrainMaskPngBlob(terrain.terrainMask) : null;
   const [heightmapBlob, normalmapBlob, bakedTextureBlob, glb] = await Promise.all([
     createHeightmapPngBlob(terrain),
     createBakedNormalMapBlob(
@@ -339,6 +366,14 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
       diffuseMode: 'height and slope blended single texture',
       normalMode: 'terrain normal plus height and slope blended layer normal maps',
     },
+    terrainMask: terrain.terrainMask?.enabled
+      ? {
+          file: 'terrain_mask.png',
+          resolution: terrain.terrainMask.resolution,
+          white: 'full hills and mountains',
+          black: 'suppressed hills and mountains',
+        }
+      : null,
     textureSettings,
     textures: settings.textureSet
       ? Object.fromEntries(
@@ -360,6 +395,10 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
     'terrain_texture.png': new Uint8Array(await bakedTextureBlob.arrayBuffer()),
     'metadata.json': strToU8(JSON.stringify(metadata, null, 2)),
   };
+
+  if (maskBlob) {
+    files['terrain_mask.png'] = new Uint8Array(await maskBlob.arrayBuffer());
+  }
 
   if (Object.keys(textureSet).length > 0) {
     const textureEntries = Object.entries(textureSet);

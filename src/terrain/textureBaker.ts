@@ -17,6 +17,11 @@ interface PreparedTexture {
   data: Uint8ClampedArray;
 }
 
+interface TextureRepeat {
+  u: number;
+  v: number;
+}
+
 const FALLBACK_COLORS: Record<TerrainDiffuseLayerKey, [number, number, number]> = {
   grass: [88, 136, 76],
   dirt: [121, 101, 72],
@@ -196,7 +201,7 @@ async function createBakedTerrainTextureCanvas(
 
   const image = context.createImageData(size, size);
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
-  const repeat = Math.max(1, settings.repeat);
+  const repeat = getTextureRepeat(terrain, settings);
 
   for (let y = 0; y < size; y += 1) {
     const v = y / Math.max(1, size - 1);
@@ -301,7 +306,7 @@ async function createCombinedNormalCanvas(
     prepareNormalTexture(textures.detailNormal),
   ]);
   const image = context.createImageData(size, size);
-  const repeat = Math.max(1, settings.repeat);
+  const repeat = getTextureRepeat(terrain, settings);
   const terrainStrength = forceTerrainNormal || settings.terrainNormalEnabled
     ? clamp(settings.terrainNormalStrength, 0, 2)
     : 0;
@@ -411,9 +416,14 @@ function createSolidTexture(color: [number, number, number]): PreparedTexture {
   };
 }
 
-function samplePreparedTexture(texture: PreparedTexture, u: number, v: number, repeat: number) {
-  const wrappedU = wrap(u * repeat);
-  const wrappedV = wrap(v * repeat);
+function samplePreparedTexture(
+  texture: PreparedTexture,
+  u: number,
+  v: number,
+  repeat: TextureRepeat,
+) {
+  const wrappedU = wrap(u * repeat.u);
+  const wrappedV = wrap(v * repeat.v);
   const x = wrappedU * texture.width - 0.5;
   const y = wrappedV * texture.height - 0.5;
   const x0 = positiveModulo(Math.floor(x), texture.width);
@@ -441,7 +451,7 @@ function sampleNormalTexture(
   texture: PreparedTexture | null,
   u: number,
   v: number,
-  repeat: number,
+  repeat: TextureRepeat,
 ) {
   if (!texture) {
     return [0, 0, 1] as [number, number, number];
@@ -500,6 +510,18 @@ function normalizeNormal(normal: [number, number, number]) {
     normal[1] / length,
     normal[2] / length,
   ] as [number, number, number];
+}
+
+function getTextureRepeat(terrain: TerrainData, settings: TerrainTextureSettings): TextureRepeat {
+  const baseRepeat = Math.max(0.1, settings.repeat);
+  const repeatX = Math.max(0.1, settings.repeatX ?? 1);
+  const repeatZ = Math.max(0.1, settings.repeatZ ?? 1);
+  const maxSide = Math.max(1, terrain.width, terrain.depth);
+
+  return {
+    u: baseRepeat * (terrain.width / maxSide) * repeatX,
+    v: baseRepeat * (terrain.depth / maxSide) * repeatZ,
+  };
 }
 
 function wrap(value: number) {

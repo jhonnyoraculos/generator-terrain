@@ -17,6 +17,7 @@ import type {
   TerrainData,
   TerrainLodLevelSettings,
   TerrainLodSettings,
+  TerrainMaskData,
   TerrainParams,
   TerrainWorkerResponse,
   ViewMode,
@@ -32,6 +33,8 @@ const DEFAULT_TEXTURE_SETTINGS: TerrainTextureSettings = {
   enabled: false,
   blendStrength: 0.82,
   repeat: 9,
+  repeatX: 1,
+  repeatZ: 1,
   bakeResolution: 1024,
   terrainNormalEnabled: true,
   terrainNormalStrength: 0.72,
@@ -51,6 +54,7 @@ export function App() {
   const [textureSet, setTextureSet] = useState<TerrainTextureSet>({});
   const [textureSettings, setTextureSettings] =
     useState<TerrainTextureSettings>(DEFAULT_TEXTURE_SETTINGS);
+  const [terrainMask, setTerrainMask] = useState<TerrainMaskData>(() => createDefaultTerrainMask());
   const [lodSettings, setLodSettings] = useState<TerrainLodSettings>(DEFAULT_LOD_SETTINGS);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -114,42 +118,46 @@ export function App() {
     };
   }, []);
 
-  const requestGenerate = useCallback((nextParams: TerrainParams) => {
-    const sanitized = sanitizeTerrainParams(nextParams);
-    const id = latestRequestRef.current + 1;
-    latestRequestRef.current = id;
-    setGenerating(true);
-    setError(null);
+  const requestGenerate = useCallback(
+    (nextParams: TerrainParams, nextTerrainMask?: TerrainMaskData) => {
+      const sanitized = sanitizeTerrainParams(nextParams);
+      const generationMask = cloneTerrainMask(nextTerrainMask);
+      const id = latestRequestRef.current + 1;
+      latestRequestRef.current = id;
+      setGenerating(true);
+      setError(null);
 
-    if (workerRef.current) {
-      workerRef.current.postMessage({ id, params: sanitized });
-      return;
-    }
-
-    window.setTimeout(() => {
-      try {
-        const nextTerrain = generateTerrain(sanitized);
-        if (id === latestRequestRef.current) {
-          setTerrain(nextTerrain);
-          setGenerating(false);
-        }
-      } catch (generationError) {
-        if (id === latestRequestRef.current) {
-          setError(
-            generationError instanceof Error
-              ? generationError.message
-              : 'Falha desconhecida ao gerar terreno.',
-          );
-          setGenerating(false);
-        }
+      if (workerRef.current) {
+        workerRef.current.postMessage({ id, params: sanitized, terrainMask: generationMask });
+        return;
       }
-    }, 0);
-  }, []);
+
+      window.setTimeout(() => {
+        try {
+          const nextTerrain = generateTerrain(sanitized, generationMask);
+          if (id === latestRequestRef.current) {
+            setTerrain(nextTerrain);
+            setGenerating(false);
+          }
+        } catch (generationError) {
+          if (id === latestRequestRef.current) {
+            setError(
+              generationError instanceof Error
+                ? generationError.message
+                : 'Falha desconhecida ao gerar terreno.',
+            );
+            setGenerating(false);
+          }
+        }
+      }, 0);
+    },
+    [],
+  );
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => requestGenerate(params), 320);
+    const timeout = window.setTimeout(() => requestGenerate(params, terrainMask), 320);
     return () => window.clearTimeout(timeout);
-  }, [params, requestGenerate]);
+  }, [params, terrainMask, requestGenerate]);
 
   const warning = useMemo(() => {
     const vertices = params.resolution * params.resolution;
@@ -192,6 +200,7 @@ export function App() {
     setParams(DEFAULT_TERRAIN_PARAMS);
     setViewMode('shaded');
     setShowGrid(true);
+    setTerrainMask(createDefaultTerrainMask());
     setLodSettings(createDefaultLodSettings(DEFAULT_TERRAIN_PARAMS.resolution));
   };
 
@@ -256,6 +265,7 @@ export function App() {
         showGrid={showGrid}
         textureSet={textureSet}
         textureSettings={textureSettings}
+        terrainMask={terrainMask}
         lodSettings={lodSettings}
         generating={generating}
         exporting={exporting}
@@ -266,8 +276,9 @@ export function App() {
         onGridChange={setShowGrid}
         onTextureSettingsChange={setTextureSettings}
         onTextureFile={handleTextureFile}
+        onTerrainMaskChange={setTerrainMask}
         onLodSettingsChange={setLodSettings}
-        onGenerate={() => requestGenerate(params)}
+        onGenerate={() => requestGenerate(params, terrainMask)}
         onRandomSeed={handleRandomSeed}
         onReset={handleReset}
         onExportOBJ={() => runExport('OBJ', () => downloadOBJ(terrain!, exportSettings))}
@@ -345,6 +356,27 @@ function createRandomSeed() {
 function isUnityFriendly(resolution: number) {
   const value = Math.round(resolution) - 1;
   return value > 0 && (value & (value - 1)) === 0;
+}
+
+function createDefaultTerrainMask(): TerrainMaskData {
+  const resolution = 128;
+  return {
+    enabled: false,
+    resolution,
+    values: new Float32Array(resolution * resolution).fill(1),
+  };
+}
+
+function cloneTerrainMask(mask?: TerrainMaskData): TerrainMaskData | undefined {
+  if (!mask) {
+    return undefined;
+  }
+
+  return {
+    enabled: mask.enabled,
+    resolution: mask.resolution,
+    values: new Float32Array(mask.values),
+  };
 }
 
 function createDefaultLodSettings(resolution: number): TerrainLodSettings {

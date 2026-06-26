@@ -56,6 +56,7 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 - `heightmap.r16`: RAW 16-bit little-endian normalizado de `0` a `65535`.
 - `normalmap.png`: normal map combinado a partir do relevo, dos normals por textura e do normal global de detalhe.
 - `terrain_texture.png`: textura unica bakeada do terreno, com as camadas misturadas por altura e inclinacao.
+- `terrain_mask.png`: mascara pintada de relevo, quando ativada, onde branco permite morros/montanhas e preto reduz o relevo.
 - `textures/`: texturas originais carregadas pelo usuario quando exportadas no ZIP.
 - `metadata.json`: seed, dimensoes, resolucao, altura, exagero vertical e parametros usados.
 - `terrain-forge-export.zip`: pacote com todos os arquivos acima.
@@ -71,6 +72,7 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 - `suavizacao` e `erosao`: filtram o relevo para reduzir ruido quebrado e simular deposicao simples.
 - `falloff nas bordas`: cria ilhas ou terrenos isolados.
 - `exagero vertical`: multiplica a altura usada na visualizacao e exportacao de malha.
+- `mascara de relevo`: pintura em canvas para controlar onde morros e montanhas aparecem.
 
 ## LOD no preview
 
@@ -96,6 +98,8 @@ A aba `Texturas` permite carregar imagens locais para:
 O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo usa o UV `0..1` da propria malha, entra no ZIP e tambem pode ser incorporado no GLB.
 
 No preview, o normal map geral do terreno e aplicado automaticamente no material. Os normal maps de cada camada usam as mesmas mascaras de altura/inclinacao da textura difusa, entao pedra, terra, grama e neve entram no relevo visual nos lugares corretos. A aba `Texturas` tambem permite ajustar a forca do normal do terreno, a forca dos normals carregados e a variacao macro usada para quebrar repeticao visual.
+
+Os controles `Repeticao`, `Tiling X` e `Tiling Z` ajustam o tamanho aparente das texturas. O bake usa repeticao proporcional ao tamanho fisico do terreno para reduzir distorcao em mapas retangulares.
 
 O ZIP tambem inclui `terrain.mtl`, que referencia:
 

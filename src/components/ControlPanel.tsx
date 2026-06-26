@@ -22,6 +22,7 @@ import type {
   TerrainLodLevelSettings,
   TerrainLodPreviewMode,
   TerrainLodSettings,
+  TerrainMaskData,
   TerrainParams,
   TerrainStats,
   ViewMode,
@@ -34,6 +35,7 @@ import type {
 } from '../types/textures';
 import { TEXTURE_LAYER_LABELS } from '../types/textures';
 import { Section, SelectField, SliderField, ToggleField } from './ControlField';
+import { MaskPainter } from './MaskPainter';
 
 interface ControlPanelProps {
   params: TerrainParams;
@@ -44,6 +46,7 @@ interface ControlPanelProps {
   showGrid: boolean;
   textureSet: TerrainTextureSet;
   textureSettings: TerrainTextureSettings;
+  terrainMask: TerrainMaskData;
   lodSettings: TerrainLodSettings;
   generating: boolean;
   exporting: string | null;
@@ -54,6 +57,7 @@ interface ControlPanelProps {
   onGridChange: (showGrid: boolean) => void;
   onTextureSettingsChange: (settings: TerrainTextureSettings) => void;
   onTextureFile: (slot: TextureLayerKey, file: File | null) => void;
+  onTerrainMaskChange: (mask: TerrainMaskData) => void;
   onLodSettingsChange: (settings: TerrainLodSettings) => void;
   onGenerate: () => void;
   onRandomSeed: () => void;
@@ -67,7 +71,7 @@ interface ControlPanelProps {
   onExportZip: () => void;
 }
 
-type PanelTab = 'terrain' | 'textures' | 'export';
+type PanelTab = 'terrain' | 'paint' | 'textures' | 'export';
 
 const viewModes: Array<{ value: ViewMode; label: string }> = [
   { value: 'shaded', label: 'Shaded' },
@@ -103,6 +107,7 @@ export function ControlPanel({
   showGrid,
   textureSet,
   textureSettings,
+  terrainMask,
   lodSettings,
   generating,
   exporting,
@@ -113,6 +118,7 @@ export function ControlPanel({
   onGridChange,
   onTextureSettingsChange,
   onTextureFile,
+  onTerrainMaskChange,
   onLodSettingsChange,
   onGenerate,
   onRandomSeed,
@@ -197,6 +203,15 @@ export function ControlPanel({
         >
           <SlidersHorizontal size={15} aria-hidden="true" />
           Terreno
+        </button>
+        <button
+          className={activeTab === 'paint' ? 'active' : ''}
+          onClick={() => setActiveTab('paint')}
+          role="tab"
+          aria-selected={activeTab === 'paint'}
+        >
+          <Paintbrush size={15} aria-hidden="true" />
+          Pintura
         </button>
         <button
           className={activeTab === 'textures' ? 'active' : ''}
@@ -431,6 +446,14 @@ export function ControlPanel({
         </div>
       ) : null}
 
+      {activeTab === 'paint' ? (
+        <div className="tab-body" role="tabpanel">
+          <Section title="Mascara de relevo">
+            <MaskPainter mask={terrainMask} onChange={onTerrainMaskChange} />
+          </Section>
+        </div>
+      ) : null}
+
       {activeTab === 'textures' ? (
         <div className="tab-body" role="tabpanel">
           <Section title="Texturas">
@@ -449,12 +472,27 @@ export function ControlPanel({
             />
             <SliderField
               label="Repeticao"
-              min={1}
-              max={24}
-              step={1}
+              min={0.5}
+              max={64}
+              step={0.5}
               value={textureSettings.repeat}
-              integer
               onChange={(value) => updateTextureSettings('repeat', value)}
+            />
+            <SliderField
+              label="Tiling X"
+              min={0.25}
+              max={4}
+              step={0.05}
+              value={textureSettings.repeatX ?? 1}
+              onChange={(value) => updateTextureSettings('repeatX', value)}
+            />
+            <SliderField
+              label="Tiling Z"
+              min={0.25}
+              max={4}
+              step={0.05}
+              value={textureSettings.repeatZ ?? 1}
+              onChange={(value) => updateTextureSettings('repeatZ', value)}
             />
             <SliderField
               label="Resolucao do bake"
