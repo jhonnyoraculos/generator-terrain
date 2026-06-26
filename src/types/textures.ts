@@ -21,6 +21,9 @@ export interface TerrainTextureSettings {
   rockTiling: number;
   snowTiling: number;
   bakeResolution: number;
+  textureBlocksEnabled: boolean;
+  textureBlockSize: number;
+  textureBlockResolution: number;
   terrainNormalEnabled: boolean;
   terrainNormalStrength: number;
   detailNormalStrength: number;

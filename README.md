@@ -56,6 +56,9 @@ A Netlify vai instalar as dependencias, executar o build do Vite e servir a past
 - `heightmap.r16`: RAW 16-bit little-endian normalizado de `0` a `65535`.
 - `normalmap.png`: normal map combinado a partir do relevo, dos normals por textura e do normal global de detalhe.
 - `terrain_texture.png`: textura unica bakeada do terreno, com as camadas misturadas por altura e inclinacao.
+- `terrain_chunks.obj`: malha alternativa dividida em blocos conectados, com UV `0..1` por bloco, quando `Textura por blocos` estiver ativa.
+- `terrain_chunks.mtl`: materiais da versao por blocos.
+- `terrain_tiles/`: texturas e normal maps bakeados por bloco, por exemplo `tile_0_0_texture.png`.
 - `terrain_mask.png`: mascara pintada de relevo, quando ativada, onde branco permite morros/montanhas e preto reduz o relevo.
 - `textures/`: texturas originais carregadas pelo usuario quando exportadas no ZIP.
 - `metadata.json`: seed, dimensoes, resolucao, altura, exagero vertical e parametros usados.
@@ -103,6 +106,8 @@ Os controles `Repeticao geral`, `Tiling X` e `Tiling Z` ajustam a escala base da
 
 Quando o tiling sobe muito, varias repeticoes precisam caber dentro de um unico `terrain_texture.png`. O painel mostra `Qualidade do bake` em pixels por repeticao e sugere uma resolucao maior quando a textura final comeca a perder detalhe. Para close-up com tiling alto, use bake `4096` ou `8192`, sabendo que isso aumenta tempo de exportacao e uso de memoria.
 
+Ative `Textura por blocos` para dividir o terreno em partes conectadas, normalmente `32 x 32` segmentos. Cada bloco ganha UV local e uma textura propria, entao o tiling conserva muito mais detalhe sem depender de uma unica imagem gigante. No ZIP, use `terrain_chunks.obj` junto com `terrain_chunks.mtl` e a pasta `terrain_tiles/` para importar essa versao na Unity ou Blender.
+
 O ZIP tambem inclui `terrain.mtl`, que referencia:
 
 - `terrain_texture.png` como textura difusa.
@@ -119,6 +124,8 @@ Mesmo sem carregar texturas, o app gera automaticamente uma textura unica basead
 3. Se usar o ZIP, mantenha `terrain.obj`, `terrain.mtl`, `terrain_texture.png` e `normalmap.png` na mesma pasta.
 4. Selecione o asset e confira a escala. O OBJ sai centralizado na origem, com `1 unidade do app = 1 unidade Unity`.
 5. Crie um material na Unity usando `terrain_texture.png` como Base Map e `normalmap.png` como Normal Map.
+
+Para texturas em alta qualidade de perto, use a versao por blocos do ZIP: importe `terrain_chunks.obj`, `terrain_chunks.mtl` e mantenha a pasta `terrain_tiles/` no mesmo diretorio. Cada bloco usa sua propria textura e normal map, mas as bordas compartilham as mesmas posicoes do terreno.
 
 ### Importar heightmap R16 em Terrain
 

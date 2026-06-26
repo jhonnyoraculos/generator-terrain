@@ -22,6 +22,14 @@ interface TextureRepeat {
   v: number;
 }
 
+export interface TextureBakeRegion {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+  resolution?: number;
+}
+
 interface PreparedDiffuseTextures {
   grass: PreparedTexture;
   dirt: PreparedTexture;
@@ -59,12 +67,14 @@ export async function createBakedTerrainTexture(
   textures: TerrainTextureSet,
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
+  region?: TextureBakeRegion,
 ) {
   const canvas = await createBakedTerrainTextureCanvas(
     terrain,
     textures,
     settings,
     verticalExaggeration,
+    region,
   );
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -83,12 +93,14 @@ export async function createBakedTerrainTextureBlob(
   textures: TerrainTextureSet,
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
+  region?: TextureBakeRegion,
 ) {
   const canvas = await createBakedTerrainTextureCanvas(
     terrain,
     textures,
     settings,
     verticalExaggeration,
+    region,
   );
 
   return new Promise<Blob>((resolve, reject) => {
@@ -107,6 +119,7 @@ export async function createBakedNormalMapBlob(
   textures: TerrainTextureSet,
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
+  region?: TextureBakeRegion,
 ) {
   const canvas = await createCombinedNormalCanvas(
     terrain,
@@ -114,6 +127,7 @@ export async function createBakedNormalMapBlob(
     settings,
     verticalExaggeration,
     true,
+    region,
   );
 
   return new Promise<Blob>((resolve, reject) => {
@@ -132,6 +146,7 @@ export async function createBakedNormalTexture(
   textures: TerrainTextureSet,
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
+  region?: TextureBakeRegion,
 ) {
   const canvas = await createCombinedNormalCanvas(
     terrain,
@@ -139,6 +154,7 @@ export async function createBakedNormalTexture(
     settings,
     verticalExaggeration,
     true,
+    region,
   );
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.NoColorSpace;
@@ -174,6 +190,7 @@ export async function createPreviewNormalTexture(
   textures: TerrainTextureSet,
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
+  region?: TextureBakeRegion,
 ) {
   if (!settings.terrainNormalEnabled && !hasTextureNormals(textures)) {
     return null;
@@ -185,6 +202,7 @@ export async function createPreviewNormalTexture(
     settings,
     verticalExaggeration,
     false,
+    region,
   );
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.NoColorSpace;
@@ -203,8 +221,13 @@ async function createBakedTerrainTextureCanvas(
   textures: TerrainTextureSet,
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
+  region?: TextureBakeRegion,
 ) {
-  const size = getSafeBakeResolution(settings.bakeResolution, 8192);
+  const bakeRegion = normalizeBakeRegion(region);
+  const size = getSafeBakeResolution(
+    bakeRegion.resolution ?? settings.bakeResolution,
+    8192,
+  );
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -224,7 +247,7 @@ async function createBakedTerrainTextureCanvas(
   const image = context.createImageData(size, size);
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
   const repeats = getTextureRepeats(terrain, settings);
-  const sampleGrid = getDiffuseSampleGrid(size, repeats);
+  const sampleGrid = getDiffuseSampleGrid(size, repeats, bakeRegion);
 
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
@@ -233,8 +256,8 @@ async function createBakedTerrainTextureCanvas(
             terrain,
             preparedTextures,
             repeats,
-            x / Math.max(1, size - 1),
-            y / Math.max(1, size - 1),
+            mapLocalToRegion(x / Math.max(1, size - 1), bakeRegion.u0, bakeRegion.u1),
+            mapLocalToRegion(y / Math.max(1, size - 1), bakeRegion.v0, bakeRegion.v1),
             verticalExaggeration,
             heightRange,
             settings,
@@ -247,6 +270,7 @@ async function createBakedTerrainTextureCanvas(
             y,
             size,
             sampleGrid,
+            bakeRegion,
             verticalExaggeration,
             heightRange,
             settings,
@@ -272,6 +296,7 @@ function sampleTerrainDiffuseColorSupersampled(
   y: number,
   size: number,
   sampleGrid: number,
+  region: TextureBakeRegion,
   verticalExaggeration: number,
   heightRange: number,
   settings: TerrainTextureSettings,
@@ -283,16 +308,18 @@ function sampleTerrainDiffuseColorSupersampled(
 
   for (let sampleY = 0; sampleY < sampleGrid; sampleY += 1) {
     for (let sampleX = 0; sampleX < sampleGrid; sampleX += 1) {
-      const u = clamp(
+      const localU = clamp(
         (x + (sampleX + 0.5) / sampleGrid - 0.5) / Math.max(1, size - 1),
         0,
         1,
       );
-      const v = clamp(
+      const localV = clamp(
         (y + (sampleY + 0.5) / sampleGrid - 0.5) / Math.max(1, size - 1),
         0,
         1,
       );
+      const u = mapLocalToRegion(localU, region.u0, region.u1);
+      const v = mapLocalToRegion(localV, region.v0, region.v1);
       const color = sampleTerrainDiffuseColor(
         terrain,
         textures,
@@ -424,11 +451,13 @@ async function createCombinedNormalCanvas(
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
   forceTerrainNormal: boolean,
+  region?: TextureBakeRegion,
 ) {
+  const bakeRegion = normalizeBakeRegion(region);
   const requestedSize = Math.round(settings.bakeResolution);
   const size = forceTerrainNormal
-    ? getSafeBakeResolution(requestedSize, 8192)
-    : getSafeBakeResolution(requestedSize, 2048);
+    ? getSafeBakeResolution(bakeRegion.resolution ?? requestedSize, 8192)
+    : getSafeBakeResolution(bakeRegion.resolution ?? requestedSize, 2048);
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -454,11 +483,13 @@ async function createCombinedNormalCanvas(
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
 
   for (let y = 0; y < size; y += 1) {
-    const v = y / Math.max(1, size - 1);
+    const localV = y / Math.max(1, size - 1);
+    const v = mapLocalToRegion(localV, bakeRegion.v0, bakeRegion.v1);
     const row = Math.round(v * (terrain.resolution - 1));
 
     for (let x = 0; x < size; x += 1) {
-      const u = x / Math.max(1, size - 1);
+      const localU = x / Math.max(1, size - 1);
+      const u = mapLocalToRegion(localU, bakeRegion.u0, bakeRegion.u1);
       const col = Math.round(u * (terrain.resolution - 1));
       const height = terrain.heights[row * terrain.resolution + col];
       const height01 = clamp((height - terrain.stats.heightMin) / heightRange, 0, 1);
@@ -730,18 +761,44 @@ function getTextureRepeats(
   };
 }
 
-function getDiffuseSampleGrid(size: number, repeats: TextureRepeatsByLayer) {
-  const maxRepeat = getMaxTextureRepeat([repeats.grass, repeats.dirt, repeats.rock, repeats.snow]);
+function getDiffuseSampleGrid(
+  size: number,
+  repeats: TextureRepeatsByLayer,
+  region: TextureBakeRegion,
+) {
+  const maxRepeat = getMaxTextureRepeat(
+    [repeats.grass, repeats.dirt, repeats.rock, repeats.snow],
+    region,
+  );
   const pixelsPerRepeat = size / Math.max(1, maxRepeat);
   return size <= 2048 && pixelsPerRepeat < 56 ? 2 : 1;
 }
 
-function getMaxTextureRepeat(repeats: TextureRepeat[]) {
-  return repeats.reduce((max, repeat) => Math.max(max, repeat.u, repeat.v), 1);
+function getMaxTextureRepeat(repeats: TextureRepeat[], region: TextureBakeRegion) {
+  const regionWidth = Math.max(0.0001, Math.abs(region.u1 - region.u0));
+  const regionHeight = Math.max(0.0001, Math.abs(region.v1 - region.v0));
+  return repeats.reduce(
+    (max, repeat) => Math.max(max, repeat.u * regionWidth, repeat.v * regionHeight),
+    1,
+  );
 }
 
 function getSafeBakeResolution(resolution: number, maxResolution: number) {
   return Math.max(128, Math.min(maxResolution, Math.round(resolution)));
+}
+
+function normalizeBakeRegion(region?: TextureBakeRegion): TextureBakeRegion {
+  return {
+    u0: clamp(region?.u0 ?? 0, 0, 1),
+    u1: clamp(region?.u1 ?? 1, 0, 1),
+    v0: clamp(region?.v0 ?? 0, 0, 1),
+    v1: clamp(region?.v1 ?? 1, 0, 1),
+    resolution: region?.resolution,
+  };
+}
+
+function mapLocalToRegion(value: number, start: number, end: number) {
+  return lerp(start, end, clamp(value, 0, 1));
 }
 
 function getLayerTiling(

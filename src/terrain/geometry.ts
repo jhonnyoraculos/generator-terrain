@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { TerrainData } from '../types/terrain';
-import { estimateSlope01 } from './normals';
+import type { TerrainTextureTile } from './tiles';
+import { computeTerrainNormal, estimateSlope01 } from './normals';
 import { clamp, lerp, smoothstep } from './noise';
 
 export interface TerrainGeometryOptions {
@@ -112,6 +113,91 @@ export function estimateLodGeometryStats(
     vertices: lodResolution * lodResolution,
     triangles: (lodResolution - 1) * (lodResolution - 1) * 2,
   };
+}
+
+export function createTerrainTileGeometry(
+  terrain: TerrainData,
+  options: TerrainGeometryOptions,
+  tile: TerrainTextureTile,
+) {
+  const { width, depth, resolution, heights } = terrain;
+  const tileResolutionX = tile.segmentsX + 1;
+  const tileResolutionZ = tile.segmentsZ + 1;
+  const vertexCount = tileResolutionX * tileResolutionZ;
+  const positions = new Float32Array(vertexCount * 3);
+  const normals = new Float32Array(vertexCount * 3);
+  const colors = new Float32Array(vertexCount * 3);
+  const uvs = new Float32Array(vertexCount * 2);
+  const indexCount = tile.segmentsX * tile.segmentsZ * 6;
+  const indices =
+    vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
+  const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
+
+  let vertexOffset = 0;
+  let uvOffset = 0;
+  for (let row = tile.startRow; row <= tile.endRow; row += 1) {
+    const globalV = row / (resolution - 1);
+    const localV = (row - tile.startRow) / Math.max(1, tile.segmentsZ);
+    const z = (globalV - 0.5) * depth;
+
+    for (let col = tile.startCol; col <= tile.endCol; col += 1) {
+      const globalU = col / (resolution - 1);
+      const localU = (col - tile.startCol) / Math.max(1, tile.segmentsX);
+      const index = row * resolution + col;
+      const x = (globalU - 0.5) * width;
+      const y = heights[index] * options.verticalExaggeration;
+      const normal = computeTerrainNormal(terrain, row, col, options.verticalExaggeration);
+      positions[vertexOffset] = x;
+      positions[vertexOffset + 1] = y;
+      positions[vertexOffset + 2] = z;
+      normals[vertexOffset] = normal.x;
+      normals[vertexOffset + 1] = normal.y;
+      normals[vertexOffset + 2] = normal.z;
+      uvs[uvOffset] = localU;
+      uvs[uvOffset + 1] = 1 - localV;
+
+      const normalizedHeight = (heights[index] - terrain.stats.heightMin) / heightRange;
+      const slope = estimateSlope01(terrain, row, col, options.verticalExaggeration);
+      const color = getHeightColor(normalizedHeight, slope);
+      colors[vertexOffset] = color[0];
+      colors[vertexOffset + 1] = color[1];
+      colors[vertexOffset + 2] = color[2];
+      vertexOffset += 3;
+      uvOffset += 2;
+    }
+  }
+
+  let indexOffset = 0;
+  for (let row = 0; row < tile.segmentsZ; row += 1) {
+    for (let col = 0; col < tile.segmentsX; col += 1) {
+      const i0 = row * tileResolutionX + col;
+      const i1 = i0 + 1;
+      const i2 = i0 + tileResolutionX;
+      const i3 = i2 + 1;
+      indices[indexOffset] = i0;
+      indices[indexOffset + 1] = i2;
+      indices[indexOffset + 2] = i1;
+      indices[indexOffset + 3] = i1;
+      indices[indexOffset + 4] = i2;
+      indices[indexOffset + 5] = i3;
+      indexOffset += 6;
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeTangents();
+  geometry.computeBoundingSphere();
+
+  if (!options.includeVertexColors) {
+    geometry.deleteAttribute('color');
+  }
+
+  return geometry;
 }
 
 export function getHeightColor(height: number, slope: number): [number, number, number] {

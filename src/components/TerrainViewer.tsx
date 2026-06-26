@@ -16,7 +16,17 @@ import type {
   ViewMode,
 } from '../types/terrain';
 import type { TerrainTextureSettings, TerrainTextureSet } from '../types/textures';
-import { createTerrainGeometry, estimateLodGeometryStats } from '../terrain/geometry';
+import {
+  createTerrainGeometry,
+  createTerrainTileGeometry,
+  estimateLodGeometryStats,
+} from '../terrain/geometry';
+import {
+  createTerrainTextureTiles,
+  getTextureBlockResolution,
+  shouldUseTextureBlocks,
+} from '../terrain/tiles';
+import type { TerrainTextureTile } from '../terrain/tiles';
 import {
   createBakedTerrainTexture,
   createPreviewNormalTexture,
@@ -64,6 +74,18 @@ interface NormalizedLodLevel {
   enabled: boolean;
   resolution: number;
   distance: number;
+}
+
+interface ChunkMeshInfo {
+  mesh: THREE.Mesh;
+  tile: TerrainTextureTile;
+}
+
+interface TerrainObjectBuild {
+  object: THREE.Object3D;
+  meshes: THREE.Mesh[];
+  levels: LodLevelInfo[];
+  chunkMeshes: ChunkMeshInfo[];
 }
 
 export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>(
@@ -248,6 +270,8 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
         heightColors,
         verticalExaggeration,
         lodSettings,
+        textureSet,
+        textureSettings,
       });
       terrainObjectRef.current = terrainObject.object;
       lodLevelsRef.current = terrainObject.levels;
@@ -271,6 +295,7 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
         verticalExaggeration,
         textureSet,
         textureSettings,
+        chunkMeshes: terrainObject.chunkMeshes,
         materialJobRef,
       });
 
@@ -424,15 +449,35 @@ function createTerrainObject({
   heightColors,
   verticalExaggeration,
   lodSettings,
+  textureSet,
+  textureSettings,
 }: {
   terrain: TerrainData;
   viewMode: ViewMode;
   heightColors: boolean;
   verticalExaggeration: number;
   lodSettings: TerrainLodSettings;
-}) {
+  textureSet: TerrainTextureSet;
+  textureSettings: TerrainTextureSettings;
+}): TerrainObjectBuild {
   const includeVertexColors = viewMode === 'shaded' && heightColors;
   const sharedMaterial = createMaterial(viewMode, heightColors);
+  const useChunkedTexturePreview =
+    viewMode === 'shaded' &&
+    shouldUseTextureBlocks(textureSettings) &&
+    textureSettings.enabled &&
+    hasTerrainTextures(textureSet);
+
+  if (useChunkedTexturePreview) {
+    return createChunkedTerrainObject({
+      terrain,
+      viewMode,
+      heightColors,
+      verticalExaggeration,
+      textureSettings,
+    });
+  }
+
   const previewMode = lodSettings.previewMode ?? 'auto';
   const normalizedLevels = normalizeLodLevels(lodSettings.levels ?? [], terrain.resolution);
   const previewLevel = getPreviewLodLevel(previewMode);
@@ -457,6 +502,7 @@ function createTerrainObject({
       object: mesh,
       meshes,
       levels,
+      chunkMeshes: [],
     };
   }
 
@@ -475,6 +521,7 @@ function createTerrainObject({
       object: mesh,
       meshes,
       levels,
+      chunkMeshes: [],
     };
   }
 
@@ -497,6 +544,62 @@ function createTerrainObject({
     object: lod,
     meshes,
     levels,
+    chunkMeshes: [],
+  };
+}
+
+function createChunkedTerrainObject({
+  terrain,
+  viewMode,
+  heightColors,
+  verticalExaggeration,
+  textureSettings,
+}: {
+  terrain: TerrainData;
+  viewMode: ViewMode;
+  heightColors: boolean;
+  verticalExaggeration: number;
+  textureSettings: TerrainTextureSettings;
+}): TerrainObjectBuild {
+  const includeVertexColors = viewMode === 'shaded' && heightColors;
+  const group = new THREE.Group();
+  group.name = 'TerrainForge_TextureBlocks';
+  const meshes: THREE.Mesh[] = [];
+  const chunkMeshes: ChunkMeshInfo[] = [];
+  const tiles = createTerrainTextureTiles(terrain, textureSettings);
+
+  tiles.forEach((tile) => {
+    const material = createMaterial(viewMode, heightColors);
+    const geometry = createTerrainTileGeometry(
+      terrain,
+      {
+        verticalExaggeration,
+        includeVertexColors,
+      },
+      tile,
+    );
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `TerrainForge_Tile_${tile.x}_${tile.z}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    meshes.push(mesh);
+    chunkMeshes.push({ mesh, tile });
+  });
+
+  return {
+    object: group,
+    meshes,
+    levels: [
+      {
+        level: 0,
+        distance: 0,
+        vertices: terrain.stats.vertices,
+        triangles: terrain.stats.triangles,
+        resolution: terrain.resolution,
+      },
+    ],
+    chunkMeshes,
   };
 }
 
@@ -700,6 +803,7 @@ async function applyUploadedTextureMaterial({
   jobId,
   object,
   meshes,
+  chunkMeshes,
   terrain,
   viewMode,
   heightColors,
@@ -711,6 +815,7 @@ async function applyUploadedTextureMaterial({
   jobId: number;
   object: THREE.Object3D;
   meshes: THREE.Mesh[];
+  chunkMeshes: ChunkMeshInfo[];
   terrain: TerrainData;
   viewMode: ViewMode;
   heightColors: boolean;
@@ -731,6 +836,24 @@ async function applyUploadedTextureMaterial({
 
   const shouldBakeDiffuse = textureSettings.enabled && hasTerrainTextures(textureSet);
   const shouldUseNormal = textureSettings.terrainNormalEnabled || hasTextureNormals(textureSet);
+
+  if (chunkMeshes.length > 0) {
+    await applyChunkedTextureMaterials({
+      jobId,
+      object,
+      chunkMeshes,
+      heightColors,
+      terrain,
+      verticalExaggeration,
+      textureSet,
+      textureSettings,
+      shouldBakeDiffuse,
+      shouldUseNormal,
+      materialJobRef,
+    });
+    return;
+  }
+
   const [bakedTexture, normalMap] = await Promise.all([
     shouldBakeDiffuse
       ? createBakedTerrainTexture(terrain, textureSet, textureSettings, verticalExaggeration).catch(() => null)
@@ -759,6 +882,89 @@ async function applyUploadedTextureMaterial({
   meshes.forEach((mesh) => {
     collectMaterials(mesh.material, previousMaterials);
     mesh.material = nextMaterial;
+  });
+  previousMaterials.forEach((material) => disposeSingleMaterial(material));
+}
+
+async function applyChunkedTextureMaterials({
+  jobId,
+  object,
+  chunkMeshes,
+  heightColors,
+  terrain,
+  verticalExaggeration,
+  textureSet,
+  textureSettings,
+  shouldBakeDiffuse,
+  shouldUseNormal,
+  materialJobRef,
+}: {
+  jobId: number;
+  object: THREE.Object3D;
+  chunkMeshes: ChunkMeshInfo[];
+  heightColors: boolean;
+  terrain: TerrainData;
+  verticalExaggeration: number;
+  textureSet: TerrainTextureSet;
+  textureSettings: TerrainTextureSettings;
+  shouldBakeDiffuse: boolean;
+  shouldUseNormal: boolean;
+  materialJobRef: MutableRefObject<number>;
+}) {
+  const blockResolution = getTextureBlockResolution(textureSettings);
+  const previousMaterials = new Set<THREE.Material>();
+  const materialResults = await Promise.all(
+    chunkMeshes.map(async ({ mesh, tile }) => {
+      const region = {
+        u0: tile.u0,
+        u1: tile.u1,
+        v0: tile.v0,
+        v1: tile.v1,
+        resolution: blockResolution,
+      };
+      const [bakedTexture, normalMap] = await Promise.all([
+        shouldBakeDiffuse
+          ? createBakedTerrainTexture(
+              terrain,
+              textureSet,
+              textureSettings,
+              verticalExaggeration,
+              region,
+            ).catch(() => null)
+          : Promise.resolve(null),
+        shouldUseNormal
+          ? createPreviewNormalTexture(
+              terrain,
+              textureSet,
+              textureSettings,
+              verticalExaggeration,
+              region,
+            ).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      const material = new THREE.MeshStandardMaterial({
+        color: bakedTexture || !heightColors ? 0xffffff : 0x8f927f,
+        map: bakedTexture ?? null,
+        normalMap: normalMap ?? null,
+        normalScale: normalMap ? new THREE.Vector2(1.35, 1.35) : undefined,
+        roughness: 0.9,
+        metalness: 0,
+        vertexColors: !bakedTexture && heightColors,
+      });
+
+      return { mesh, material };
+    }),
+  );
+
+  if (jobId !== materialJobRef.current || object.parent === null) {
+    materialResults.forEach(({ material }) => disposeSingleMaterial(material));
+    return;
+  }
+
+  materialResults.forEach(({ mesh, material }) => {
+    collectMaterials(mesh.material, previousMaterials);
+    mesh.material = material;
   });
   previousMaterials.forEach((material) => disposeSingleMaterial(material));
 }

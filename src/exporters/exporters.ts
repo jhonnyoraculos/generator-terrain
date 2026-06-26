@@ -13,6 +13,12 @@ import {
   hasTextureNormals,
   hasTerrainTextures,
 } from '../terrain/textureBaker';
+import {
+  createTerrainTextureTiles,
+  getTextureBlockResolution,
+  shouldUseTextureBlocks,
+} from '../terrain/tiles';
+import type { TerrainTextureTile } from '../terrain/tiles';
 
 interface ExportSettings {
   verticalExaggeration: number;
@@ -32,6 +38,9 @@ const DEFAULT_BAKE_SETTINGS: TerrainTextureSettings = {
   rockTiling: 0.72,
   snowTiling: 0.85,
   bakeResolution: 2048,
+  textureBlocksEnabled: true,
+  textureBlockSize: 32,
+  textureBlockResolution: 1024,
   terrainNormalEnabled: true,
   terrainNormalStrength: 1.15,
   detailNormalStrength: 1.05,
@@ -126,6 +135,93 @@ export function serializeMTL() {
     'bump normalmap.png',
     '',
   ].join('\n');
+}
+
+export function serializeChunkedOBJ(
+  terrain: TerrainData,
+  settings: ExportSettings,
+  textureSettings: TerrainTextureSettings,
+) {
+  const tiles = createTerrainTextureTiles(terrain, textureSettings);
+  const lines: string[] = [
+    '# Terrain Forge chunked OBJ',
+    `# seed: ${terrain.params.seed}`,
+    `# resolution: ${terrain.resolution}`,
+    'mtllib terrain_chunks.mtl',
+    'o TerrainForge_Chunks',
+    's 1',
+  ];
+  let vertexBase = 1;
+  let uvBase = 1;
+  let normalBase = 1;
+
+  tiles.forEach((tile) => {
+    lines.push(`g TerrainTile_${tile.x}_${tile.z}`);
+    lines.push(`usemtl TerrainTile_${tile.x}_${tile.z}`);
+
+    forEachTileVertex(tile, (row, col) => {
+      const x = (col / (terrain.resolution - 1) - 0.5) * terrain.width;
+      const z = (row / (terrain.resolution - 1) - 0.5) * terrain.depth;
+      const y = terrain.heights[row * terrain.resolution + col] * settings.verticalExaggeration;
+      lines.push(`v ${formatNumber(x)} ${formatNumber(y)} ${formatNumber(z)}`);
+    });
+
+    forEachTileVertex(tile, (row, col) => {
+      const u = (col - tile.startCol) / Math.max(1, tile.segmentsX);
+      const v = 1 - (row - tile.startRow) / Math.max(1, tile.segmentsZ);
+      lines.push(`vt ${formatNumber(u)} ${formatNumber(v)}`);
+    });
+
+    forEachTileVertex(tile, (row, col) => {
+      const normal = computeTerrainNormal(terrain, row, col, settings.verticalExaggeration);
+      lines.push(
+        `vn ${formatNumber(normal.x)} ${formatNumber(normal.y)} ${formatNumber(normal.z)}`,
+      );
+    });
+
+    const tileResolutionX = tile.segmentsX + 1;
+    for (let row = 0; row < tile.segmentsZ; row += 1) {
+      for (let col = 0; col < tile.segmentsX; col += 1) {
+        const i0 = row * tileResolutionX + col;
+        const i1 = i0 + 1;
+        const i2 = i0 + tileResolutionX;
+        const i3 = i2 + 1;
+        const a = formatObjTriplet(vertexBase + i0, uvBase + i0, normalBase + i0);
+        const b = formatObjTriplet(vertexBase + i2, uvBase + i2, normalBase + i2);
+        const c = formatObjTriplet(vertexBase + i1, uvBase + i1, normalBase + i1);
+        const d = formatObjTriplet(vertexBase + i3, uvBase + i3, normalBase + i3);
+        lines.push(`f ${a} ${b} ${c}`);
+        lines.push(`f ${c} ${b} ${d}`);
+      }
+    }
+
+    const tileVertexCount = (tile.segmentsX + 1) * (tile.segmentsZ + 1);
+    vertexBase += tileVertexCount;
+    uvBase += tileVertexCount;
+    normalBase += tileVertexCount;
+  });
+
+  return `${lines.join('\n')}\n`;
+}
+
+export function serializeChunkedMTL(tiles: TerrainTextureTile[]) {
+  const lines = ['# Terrain Forge chunked materials'];
+  tiles.forEach((tile) => {
+    const baseName = `terrain_tiles/tile_${tile.x}_${tile.z}`;
+    lines.push(
+      `newmtl TerrainTile_${tile.x}_${tile.z}`,
+      'Ka 1.000 1.000 1.000',
+      'Kd 1.000 1.000 1.000',
+      'Ks 0.000 0.000 0.000',
+      'Ns 8',
+      'illum 2',
+      `map_Kd ${baseName}_texture.png`,
+      `norm ${baseName}_normal.png`,
+      `bump ${baseName}_normal.png`,
+      '',
+    );
+  });
+  return lines.join('\n');
 }
 
 export function createRaw16R16(terrain: TerrainData) {
@@ -321,6 +417,11 @@ export async function downloadGLB(terrain: TerrainData, settings: ExportSettings
 export async function downloadTerrainZip(terrain: TerrainData, settings: ExportSettings) {
   const textureSet = settings.textureSet ?? {};
   const textureSettings = settings.textureSettings ?? DEFAULT_BAKE_SETTINGS;
+  const textureBlocksEnabled = shouldUseTextureBlocks(textureSettings) && hasTerrainTextures(textureSet);
+  const textureTiles = textureBlocksEnabled
+    ? createTerrainTextureTiles(terrain, textureSettings)
+    : [];
+  const textureBlockResolution = getTextureBlockResolution(textureSettings);
   const maskBlob =
     terrain.terrainMask?.enabled ? await createTerrainMaskPngBlob(terrain.terrainMask) : null;
   const [heightmapBlob, normalmapBlob, bakedTextureBlob, glb] = await Promise.all([
@@ -369,6 +470,17 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
       material: 'terrain.mtl',
       diffuseMode: 'height and slope blended single texture',
       normalMode: 'terrain normal plus height and slope blended layer normal maps',
+      chunked:
+        textureBlocksEnabled && textureTiles.length > 0
+          ? {
+              mesh: 'terrain_chunks.obj',
+              material: 'terrain_chunks.mtl',
+              folder: 'terrain_tiles/',
+              tileCount: textureTiles.length,
+              tileResolution: textureBlockResolution,
+              tileSizeSegments: textureSettings.textureBlockSize,
+            }
+          : null,
     },
     terrainMask: terrain.terrainMask?.enabled
       ? {
@@ -404,6 +516,44 @@ export async function downloadTerrainZip(terrain: TerrainData, settings: ExportS
     files['terrain_mask.png'] = new Uint8Array(await maskBlob.arrayBuffer());
   }
 
+  if (textureBlocksEnabled && textureTiles.length > 0) {
+    files['terrain_chunks.obj'] = strToU8(
+      serializeChunkedOBJ(terrain, settings, textureSettings),
+    );
+    files['terrain_chunks.mtl'] = strToU8(serializeChunkedMTL(textureTiles));
+
+    await Promise.all(
+      textureTiles.map(async (tile) => {
+        const region = {
+          u0: tile.u0,
+          u1: tile.u1,
+          v0: tile.v0,
+          v1: tile.v1,
+          resolution: textureBlockResolution,
+        };
+        const [textureBlob, normalBlob] = await Promise.all([
+          createBakedTerrainTextureBlob(
+            terrain,
+            textureSet,
+            textureSettings,
+            settings.verticalExaggeration,
+            region,
+          ),
+          createBakedNormalMapBlob(
+            terrain,
+            textureSet,
+            textureSettings,
+            settings.verticalExaggeration,
+            region,
+          ),
+        ]);
+        const baseName = `terrain_tiles/tile_${tile.x}_${tile.z}`;
+        files[`${baseName}_texture.png`] = new Uint8Array(await textureBlob.arrayBuffer());
+        files[`${baseName}_normal.png`] = new Uint8Array(await normalBlob.arrayBuffer());
+      }),
+    );
+  }
+
   if (Object.keys(textureSet).length > 0) {
     const textureEntries = Object.entries(textureSet);
     await Promise.all(
@@ -431,6 +581,21 @@ function canvasToPngBlob(canvas: HTMLCanvasElement) {
       reject(new Error('Falha ao serializar PNG.'));
     }, 'image/png');
   });
+}
+
+function forEachTileVertex(
+  tile: TerrainTextureTile,
+  callback: (row: number, col: number) => void,
+) {
+  for (let row = tile.startRow; row <= tile.endRow; row += 1) {
+    for (let col = tile.startCol; col <= tile.endCol; col += 1) {
+      callback(row, col);
+    }
+  }
+}
+
+function formatObjTriplet(vertex: number, uv: number, normal: number) {
+  return `${vertex}/${uv}/${normal}`;
 }
 
 function formatNumber(value: number) {

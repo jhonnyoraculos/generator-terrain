@@ -34,6 +34,7 @@ import type {
   TextureLayerKey,
 } from '../types/textures';
 import { TEXTURE_LAYER_LABELS } from '../types/textures';
+import { estimateTextureTileCount, getTextureBlockSize } from '../terrain/tiles';
 import { Section, SelectField, SliderField, ToggleField } from './ControlField';
 import { MaskPainter } from './MaskPainter';
 
@@ -526,16 +527,47 @@ export function ControlPanel({
               integer
               onChange={(value) => updateTextureSettings('bakeResolution', value)}
             />
+            <ToggleField
+              label="Textura por blocos"
+              checked={textureSettings.textureBlocksEnabled}
+              onChange={(value) => updateTextureSettings('textureBlocksEnabled', value)}
+            />
+            {textureSettings.textureBlocksEnabled ? (
+              <>
+                <SliderField
+                  label="Tamanho do bloco"
+                  min={8}
+                  max={128}
+                  step={8}
+                  value={getTextureBlockSize(params, textureSettings)}
+                  suffix=" seg"
+                  integer
+                  onChange={(value) => updateTextureSettings('textureBlockSize', value)}
+                />
+                <SliderField
+                  label="Resolucao por bloco"
+                  min={256}
+                  max={4096}
+                  step={256}
+                  value={textureSettings.textureBlockResolution}
+                  integer
+                  onChange={(value) => updateTextureSettings('textureBlockResolution', value)}
+                />
+              </>
+            ) : null}
             <div className={`texture-quality texture-quality--${bakeQuality.status}`}>
               <div>
                 <strong>Qualidade do bake</strong>
-                <span>{bakeQuality.pixelsPerRepeat} px / repeticao</span>
+                <span>{bakeQuality.label}</span>
               </div>
               <p>{bakeQuality.message}</p>
-              {bakeQuality.recommendedResolution > textureSettings.bakeResolution ? (
+              {bakeQuality.recommendedResolution > bakeQuality.currentResolution ? (
                 <button
                   onClick={() =>
-                    updateTextureSettings('bakeResolution', bakeQuality.recommendedResolution)
+                    updateTextureSettings(
+                      bakeQuality.resolutionKey,
+                      bakeQuality.recommendedResolution,
+                    )
                   }
                 >
                   Usar {bakeQuality.recommendedResolution}px
@@ -691,6 +723,7 @@ function estimateTextureBakeQuality(
   params: TerrainParams,
   settings: TerrainTextureSettings,
 ) {
+  const textureTiles = estimateTextureTileCount(params, settings);
   const baseRepeat = Math.max(0.1, settings.repeat);
   const repeatX = Math.max(0.1, settings.repeatX ?? 1);
   const repeatZ = Math.max(0.1, settings.repeatZ ?? 1);
@@ -708,39 +741,73 @@ function estimateTextureBakeQuality(
       Math.max(max, baseRepeat * aspectX * repeatX * tiling, baseRepeat * aspectZ * repeatZ * tiling),
     1,
   );
-  const effectiveBakeResolution = Math.max(128, Math.min(8192, settings.bakeResolution));
+  const usingBlocks = settings.textureBlocksEnabled;
+  const blockFraction = usingBlocks
+    ? textureTiles.blockSize / Math.max(1, Math.round(params.resolution) - 1)
+    : 1;
+  const repeatsPerTexture = Math.max(1, maxRepeat * blockFraction);
+  const resolutionKey: 'bakeResolution' | 'textureBlockResolution' = usingBlocks
+    ? 'textureBlockResolution'
+    : 'bakeResolution';
+  const currentResolution = usingBlocks
+    ? Math.max(128, Math.min(4096, settings.textureBlockResolution))
+    : Math.max(128, Math.min(8192, settings.bakeResolution));
   const pixelsPerRepeat = Math.max(
     1,
-    Math.floor(effectiveBakeResolution / Math.max(1, maxRepeat)),
+    Math.floor(currentResolution / repeatsPerTexture),
   );
-  const recommendedResolution = clampBakeResolution(Math.ceil((maxRepeat * 96) / 512) * 512);
+  const recommendedResolution = usingBlocks
+    ? clampBlockResolution(Math.ceil((repeatsPerTexture * 96) / 256) * 256)
+    : clampBakeResolution(Math.ceil((repeatsPerTexture * 96) / 512) * 512);
+  const label = usingBlocks
+    ? `${pixelsPerRepeat} px / rep - ${textureTiles.total} blocos`
+    : `${pixelsPerRepeat} px / repeticao`;
 
   if (pixelsPerRepeat < 48) {
     return {
       status: 'low',
+      label,
       pixelsPerRepeat,
       recommendedResolution,
-      message: 'Baixa: o tiling esta alto demais para a resolucao atual.',
+      currentResolution,
+      resolutionKey,
+      message: usingBlocks
+        ? 'Baixa: aumente a resolucao por bloco ou diminua o tiling.'
+        : 'Baixa: o tiling esta alto demais para a resolucao atual.',
     };
   }
   if (pixelsPerRepeat < 96) {
     return {
       status: 'medium',
+      label,
       pixelsPerRepeat,
       recommendedResolution,
-      message: 'Media: use um bake maior para close-up.',
+      currentResolution,
+      resolutionKey,
+      message: usingBlocks
+        ? 'Media: boa para distancia media; suba o bloco para close-up.'
+        : 'Media: use um bake maior para close-up.',
     };
   }
   return {
     status: 'high',
+    label,
     pixelsPerRepeat,
     recommendedResolution,
-    message: 'Alta: boa densidade para textura unica.',
+    currentResolution,
+    resolutionKey,
+    message: usingBlocks
+      ? 'Alta: os blocos mantem boa densidade de textura.'
+      : 'Alta: boa densidade para textura unica.',
   };
 }
 
 function clampBakeResolution(resolution: number) {
   return Math.max(512, Math.min(8192, Math.round(resolution)));
+}
+
+function clampBlockResolution(resolution: number) {
+  return Math.max(256, Math.min(4096, Math.round(resolution)));
 }
 
 function LodLevelEditor({
