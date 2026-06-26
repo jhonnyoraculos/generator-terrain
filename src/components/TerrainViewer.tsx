@@ -134,6 +134,8 @@ export const TerrainViewer = forwardRef<TerrainViewerHandle, TerrainViewerProps>
       });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       rendererRef.current = renderer;
@@ -748,8 +750,8 @@ async function applyUploadedTextureMaterial({
     color: bakedTexture || !heightColors ? 0xffffff : 0x8f927f,
     map: bakedTexture ?? null,
     normalMap: normalMap ?? null,
-    normalScale: normalMap ? new THREE.Vector2(1, 1) : undefined,
-    roughness: 0.94,
+    normalScale: normalMap ? new THREE.Vector2(1.35, 1.35) : undefined,
+    roughness: 0.9,
     metalness: 0,
     vertexColors: !bakedTexture && heightColors,
   });

@@ -72,6 +72,7 @@ interface ControlPanelProps {
 }
 
 type PanelTab = 'terrain' | 'paint' | 'textures' | 'export';
+type TextureTilingKey = 'grassTiling' | 'dirtTiling' | 'rockTiling' | 'snowTiling';
 
 const viewModes: Array<{ value: ViewMode; label: string }> = [
   { value: 'shaded', label: 'Shaded' },
@@ -91,11 +92,32 @@ const textureLayerGroups: Array<{
   label: string;
   diffuse: TextureLayerKey;
   normal: TextureLayerKey;
+  tilingKey: TextureTilingKey;
 }> = [
-  { label: 'Grama / vegetacao', diffuse: 'grass', normal: 'grassNormal' },
-  { label: 'Terra / solo exposto', diffuse: 'dirt', normal: 'dirtNormal' },
-  { label: 'Pedra / encosta', diffuse: 'rock', normal: 'rockNormal' },
-  { label: 'Neve / topo claro', diffuse: 'snow', normal: 'snowNormal' },
+  {
+    label: 'Grama / vegetacao',
+    diffuse: 'grass',
+    normal: 'grassNormal',
+    tilingKey: 'grassTiling',
+  },
+  {
+    label: 'Terra / solo exposto',
+    diffuse: 'dirt',
+    normal: 'dirtNormal',
+    tilingKey: 'dirtTiling',
+  },
+  {
+    label: 'Pedra / encosta',
+    diffuse: 'rock',
+    normal: 'rockNormal',
+    tilingKey: 'rockTiling',
+  },
+  {
+    label: 'Neve / topo claro',
+    diffuse: 'snow',
+    normal: 'snowNormal',
+    tilingKey: 'snowTiling',
+  },
 ];
 
 export function ControlPanel({
@@ -471,7 +493,7 @@ export function ControlPanel({
               onChange={(value) => updateTextureSettings('blendStrength', value)}
             />
             <SliderField
-              label="Repeticao"
+              label="Repeticao geral"
               min={0.5}
               max={64}
               step={0.5}
@@ -481,7 +503,7 @@ export function ControlPanel({
             <SliderField
               label="Tiling X"
               min={0.25}
-              max={4}
+              max={8}
               step={0.05}
               value={textureSettings.repeatX ?? 1}
               onChange={(value) => updateTextureSettings('repeatX', value)}
@@ -489,7 +511,7 @@ export function ControlPanel({
             <SliderField
               label="Tiling Z"
               min={0.25}
-              max={4}
+              max={8}
               step={0.05}
               value={textureSettings.repeatZ ?? 1}
               onChange={(value) => updateTextureSettings('repeatZ', value)}
@@ -497,7 +519,7 @@ export function ControlPanel({
             <SliderField
               label="Resolucao do bake"
               min={512}
-              max={2048}
+              max={4096}
               step={512}
               value={textureSettings.bakeResolution}
               integer
@@ -519,7 +541,7 @@ export function ControlPanel({
             <SliderField
               label="Forca normal terreno"
               min={0}
-              max={1.5}
+              max={3}
               step={0.01}
               value={textureSettings.terrainNormalStrength}
               onChange={(value) => updateTextureSettings('terrainNormalStrength', value)}
@@ -527,7 +549,7 @@ export function ControlPanel({
             <SliderField
               label="Forca normal maps"
               min={0}
-              max={1.5}
+              max={3}
               step={0.01}
               value={textureSettings.detailNormalStrength}
               onChange={(value) => updateTextureSettings('detailNormalStrength', value)}
@@ -539,6 +561,16 @@ export function ControlPanel({
                     <strong>{layer.label}</strong>
                     <span>Diffuse + normal map</span>
                   </div>
+                  <SliderField
+                    label="Tiling da camada"
+                    min={0.1}
+                    max={4}
+                    step={0.05}
+                    value={textureSettings[layer.tilingKey] ?? 1}
+                    onChange={(value) =>
+                      onTextureSettingsChange({ ...textureSettings, [layer.tilingKey]: value })
+                    }
+                  />
                   <TextureDrop
                     slot={layer.diffuse}
                     asset={textureSet[layer.diffuse]}

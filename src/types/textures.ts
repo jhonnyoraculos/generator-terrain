@@ -16,6 +16,10 @@ export interface TerrainTextureSettings {
   repeat: number;
   repeatX: number;
   repeatZ: number;
+  grassTiling: number;
+  dirtTiling: number;
+  rockTiling: number;
+  snowTiling: number;
   bakeResolution: number;
   terrainNormalEnabled: boolean;
   terrainNormalStrength: number;

@@ -31,15 +31,19 @@ import type {
 
 const DEFAULT_TEXTURE_SETTINGS: TerrainTextureSettings = {
   enabled: false,
-  blendStrength: 0.82,
-  repeat: 9,
+  blendStrength: 0.94,
+  repeat: 12,
   repeatX: 1,
   repeatZ: 1,
-  bakeResolution: 1024,
+  grassTiling: 1.1,
+  dirtTiling: 0.95,
+  rockTiling: 0.72,
+  snowTiling: 0.85,
+  bakeResolution: 2048,
   terrainNormalEnabled: true,
-  terrainNormalStrength: 0.72,
-  detailNormalStrength: 0.35,
-  macroVariation: 0.26,
+  terrainNormalStrength: 1.15,
+  detailNormalStrength: 1.05,
+  macroVariation: 0.16,
 };
 
 const DEFAULT_LOD_SETTINGS: TerrainLodSettings = createDefaultLodSettings(

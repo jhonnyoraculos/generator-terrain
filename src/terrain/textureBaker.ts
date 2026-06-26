@@ -61,6 +61,10 @@ export async function createBakedTerrainTexture(
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
   texture.needsUpdate = true;
   return texture;
 }
@@ -131,6 +135,10 @@ export async function createBakedNormalTexture(
   texture.colorSpace = THREE.NoColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
   texture.needsUpdate = true;
   return texture;
 }
@@ -173,6 +181,10 @@ export async function createPreviewNormalTexture(
   texture.colorSpace = THREE.NoColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.anisotropy = 8;
   texture.needsUpdate = true;
   return texture;
 }
@@ -201,7 +213,10 @@ async function createBakedTerrainTextureCanvas(
 
   const image = context.createImageData(size, size);
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
-  const repeat = getTextureRepeat(terrain, settings);
+  const grassRepeat = getTextureRepeat(terrain, settings, 'grass');
+  const dirtRepeat = getTextureRepeat(terrain, settings, 'dirt');
+  const rockRepeat = getTextureRepeat(terrain, settings, 'rock');
+  const snowRepeat = getTextureRepeat(terrain, settings, 'snow');
 
   for (let y = 0; y < size; y += 1) {
     const v = y / Math.max(1, size - 1);
@@ -216,10 +231,42 @@ async function createBakedTerrainTextureCanvas(
       const slope = clamp(1 - normal.y, 0, 1);
 
       const weights = getTextureWeights(height01, slope);
-      const sampledGrass = samplePreparedTexture(grass, u, v, repeat);
-      const sampledDirt = samplePreparedTexture(dirt, u, v, repeat);
-      const sampledRock = samplePreparedTexture(rock, u, v, repeat);
-      const sampledSnow = samplePreparedTexture(snow, u, v, repeat);
+      const sampledGrass = sampleLayerTexture(
+        grass,
+        u,
+        v,
+        height01,
+        slope,
+        grassRepeat,
+        'grass',
+      );
+      const sampledDirt = sampleLayerTexture(
+        dirt,
+        u,
+        v,
+        height01,
+        slope,
+        dirtRepeat,
+        'dirt',
+      );
+      const sampledRock = sampleLayerTexture(
+        rock,
+        u,
+        v,
+        height01,
+        slope,
+        rockRepeat,
+        'rock',
+      );
+      const sampledSnow = sampleLayerTexture(
+        snow,
+        u,
+        v,
+        height01,
+        slope,
+        snowRepeat,
+        'snow',
+      );
       const textured = applyTerrainColorVariation(
         mixFour(sampledGrass, sampledDirt, sampledRock, sampledSnow, weights),
         u,
@@ -234,7 +281,7 @@ async function createBakedTerrainTextureCanvas(
         number,
       ];
       const textureInfluence = clamp(
-        settings.blendStrength * (0.55 + weights.rock * 0.25 + weights.dirt * 0.1),
+        settings.blendStrength * (0.82 + weights.rock * 0.12 + weights.dirt * 0.06),
         0,
         1,
       );
@@ -306,12 +353,16 @@ async function createCombinedNormalCanvas(
     prepareNormalTexture(textures.detailNormal),
   ]);
   const image = context.createImageData(size, size);
-  const repeat = getTextureRepeat(terrain, settings);
+  const grassRepeat = getTextureRepeat(terrain, settings, 'grass');
+  const dirtRepeat = getTextureRepeat(terrain, settings, 'dirt');
+  const rockRepeat = getTextureRepeat(terrain, settings, 'rock');
+  const snowRepeat = getTextureRepeat(terrain, settings, 'snow');
+  const detailRepeat = getTextureRepeat(terrain, settings, 'detail');
   const terrainStrength = forceTerrainNormal || settings.terrainNormalEnabled
-    ? clamp(settings.terrainNormalStrength, 0, 2)
+    ? clamp(settings.terrainNormalStrength, 0, 3)
     : 0;
   const textureNormalStrength =
-    hasTextureNormals(textures) ? clamp(settings.detailNormalStrength, 0, 2) : 0;
+    hasTextureNormals(textures) ? clamp(settings.detailNormalStrength, 0, 3) : 0;
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
 
   for (let y = 0; y < size; y += 1) {
@@ -325,29 +376,29 @@ async function createCombinedNormalCanvas(
       const height01 = clamp((height - terrain.stats.heightMin) / heightRange, 0, 1);
       const terrainNormal = computeTerrainNormal(terrain, row, col, verticalExaggeration);
       let nx = terrainNormal.x * terrainStrength;
-      let ny = terrainNormal.z * terrainStrength;
+      let ny = -terrainNormal.z * terrainStrength;
       let nz = terrainStrength > 0 ? Math.max(0.08, terrainNormal.y) : 1;
       const slope = clamp(1 - terrainNormal.y, 0, 1);
       const weights = getTextureWeights(height01, slope);
 
       if (textureNormalStrength > 0) {
         const blendedLayerNormal = mixFourNormals(
-          sampleNormalTexture(grassNormal, u, v, repeat),
-          sampleNormalTexture(dirtNormal, u, v, repeat),
-          sampleNormalTexture(rockNormal, u, v, repeat),
-          sampleNormalTexture(snowNormal, u, v, repeat),
+          sampleNormalTexture(grassNormal, u, v, grassRepeat),
+          sampleNormalTexture(dirtNormal, u, v, dirtRepeat),
+          sampleNormalTexture(rockNormal, u, v, rockRepeat),
+          sampleNormalTexture(snowNormal, u, v, snowRepeat),
           weights,
         );
-        nx += blendedLayerNormal[0] * textureNormalStrength;
-        ny += blendedLayerNormal[1] * textureNormalStrength;
-        nz += (blendedLayerNormal[2] - 1) * textureNormalStrength * 0.72;
+        nx += blendedLayerNormal[0] * textureNormalStrength * 1.08;
+        ny += blendedLayerNormal[1] * textureNormalStrength * 1.08;
+        nz += (blendedLayerNormal[2] - 1) * textureNormalStrength * 0.9;
       }
 
       if (detailNormal && textureNormalStrength > 0) {
-        const detail = sampleNormalTexture(detailNormal, u, v, repeat);
+        const detail = sampleNormalTexture(detailNormal, u, v, detailRepeat);
         nx += detail[0] * textureNormalStrength;
         ny += detail[1] * textureNormalStrength;
-        nz += (detail[2] - 1) * textureNormalStrength * 0.52;
+        nz += (detail[2] - 1) * textureNormalStrength * 0.72;
       }
 
       const length = Math.hypot(nx, ny, nz) || 1;
@@ -466,6 +517,42 @@ function sampleNormalTexture(
   return normalizeNormal(normal);
 }
 
+function sampleLayerTexture(
+  texture: PreparedTexture,
+  u: number,
+  v: number,
+  height: number,
+  slope: number,
+  repeat: TextureRepeat,
+  layer: TerrainDiffuseLayerKey,
+) {
+  const top = samplePreparedTexture(texture, u, v, repeat);
+  const slopeProjection = getSlopeProjectionBlend(layer, slope);
+
+  if (slopeProjection <= 0) {
+    return top;
+  }
+
+  const heightUv = clamp(height * 1.35, 0, 1);
+  const sideA = samplePreparedTexture(texture, u, heightUv, repeat);
+  const sideB = samplePreparedTexture(texture, v, heightUv, repeat);
+  const side = mixColor(sideA, sideB, 0.5);
+  return mixColor(top, side, slopeProjection * 0.82);
+}
+
+function getSlopeProjectionBlend(layer: TerrainDiffuseLayerKey, slope: number) {
+  if (layer === 'rock') {
+    return smoothstep(0.18, 0.78, slope);
+  }
+  if (layer === 'snow') {
+    return smoothstep(0.36, 0.86, slope) * 0.48;
+  }
+  if (layer === 'dirt') {
+    return smoothstep(0.42, 0.86, slope) * 0.28;
+  }
+  return 0;
+}
+
 function getPixel(texture: PreparedTexture, x: number, y: number) {
   const offset = (y * texture.width + x) * 4;
   return [texture.data[offset], texture.data[offset + 1], texture.data[offset + 2]] as [
@@ -503,6 +590,19 @@ function mixFourNormals(
   ]);
 }
 
+function mixColor(
+  a: [number, number, number],
+  b: [number, number, number],
+  t: number,
+) {
+  const amount = clamp(t, 0, 1);
+  return [
+    lerp(a[0], b[0], amount),
+    lerp(a[1], b[1], amount),
+    lerp(a[2], b[2], amount),
+  ] as [number, number, number];
+}
+
 function normalizeNormal(normal: [number, number, number]) {
   const length = Math.hypot(normal[0], normal[1], normal[2]) || 1;
   return [
@@ -512,16 +612,39 @@ function normalizeNormal(normal: [number, number, number]) {
   ] as [number, number, number];
 }
 
-function getTextureRepeat(terrain: TerrainData, settings: TerrainTextureSettings): TextureRepeat {
+function getTextureRepeat(
+  terrain: TerrainData,
+  settings: TerrainTextureSettings,
+  layer?: TerrainDiffuseLayerKey | 'detail',
+): TextureRepeat {
   const baseRepeat = Math.max(0.1, settings.repeat);
   const repeatX = Math.max(0.1, settings.repeatX ?? 1);
   const repeatZ = Math.max(0.1, settings.repeatZ ?? 1);
+  const layerTiling = getLayerTiling(settings, layer);
   const maxSide = Math.max(1, terrain.width, terrain.depth);
 
   return {
-    u: baseRepeat * (terrain.width / maxSide) * repeatX,
-    v: baseRepeat * (terrain.depth / maxSide) * repeatZ,
+    u: baseRepeat * (terrain.width / maxSide) * repeatX * layerTiling,
+    v: baseRepeat * (terrain.depth / maxSide) * repeatZ * layerTiling,
   };
+}
+
+function getLayerTiling(
+  settings: TerrainTextureSettings,
+  layer?: TerrainDiffuseLayerKey | 'detail',
+) {
+  switch (layer) {
+    case 'grass':
+      return Math.max(0.05, settings.grassTiling ?? 1);
+    case 'dirt':
+      return Math.max(0.05, settings.dirtTiling ?? 1);
+    case 'rock':
+      return Math.max(0.05, settings.rockTiling ?? 1);
+    case 'snow':
+      return Math.max(0.05, settings.snowTiling ?? 1);
+    default:
+      return 1;
+  }
 }
 
 function wrap(value: number) {

@@ -95,11 +95,11 @@ A aba `Texturas` permite carregar imagens locais para:
 - diffuse e normal map de neve / topo claro
 - normal de detalhe global opcional
 
-O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo usa o UV `0..1` da propria malha, entra no ZIP e tambem pode ser incorporado no GLB.
+O app mistura as texturas por altura e inclinacao do terreno e gera um `terrain_texture.png` bakeado. Esse arquivo usa o UV `0..1` da propria malha, entra no ZIP e tambem pode ser incorporado no GLB. Em encostas, o bake mistura uma projecao lateral simplificada para reduzir textura esticada em paredes de pedra e neve.
 
 No preview, o normal map geral do terreno e aplicado automaticamente no material. Os normal maps de cada camada usam as mesmas mascaras de altura/inclinacao da textura difusa, entao pedra, terra, grama e neve entram no relevo visual nos lugares corretos. A aba `Texturas` tambem permite ajustar a forca do normal do terreno, a forca dos normals carregados e a variacao macro usada para quebrar repeticao visual.
 
-Os controles `Repeticao`, `Tiling X` e `Tiling Z` ajustam o tamanho aparente das texturas. O bake usa repeticao proporcional ao tamanho fisico do terreno para reduzir distorcao em mapas retangulares.
+Os controles `Repeticao geral`, `Tiling X` e `Tiling Z` ajustam a escala base das texturas no terreno inteiro. Cada camada tambem tem `Tiling da camada`; use isso para deixar grama, terra, pedra e neve com escalas diferentes sem desalinha-las dos seus normal maps. O bake usa repeticao proporcional ao tamanho fisico do terreno para reduzir distorcao em mapas retangulares.
 
 O ZIP tambem inclui `terrain.mtl`, que referencia:
 
@@ -165,5 +165,6 @@ Use esses valores para reconstruir a escala no Terrain da Unity ou para repetir 
 - A geracao roda em Web Worker para manter a interface responsiva.
 - Sliders usam debounce antes de recalcular o terreno.
 - O preview tem LOD dinamico e overlay de FPS, vertices, triangulos e draw calls.
+- O terreno inicial usa `128 x 128 u` com resolucao `129`, dando uma malha de 128 segmentos por lado para melhor detalhe de perto.
 - Resolucao `257` costuma ser um bom equilibrio para PC.
 - Resolucao `513` gera mais de 263 mil vertices e pode demorar para exportar OBJ/GLB/ZIP.

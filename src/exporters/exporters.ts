@@ -23,15 +23,19 @@ interface ExportSettings {
 
 const DEFAULT_BAKE_SETTINGS: TerrainTextureSettings = {
   enabled: true,
-  blendStrength: 0.82,
-  repeat: 9,
+  blendStrength: 0.94,
+  repeat: 12,
   repeatX: 1,
   repeatZ: 1,
-  bakeResolution: 1024,
+  grassTiling: 1.1,
+  dirtTiling: 0.95,
+  rockTiling: 0.72,
+  snowTiling: 0.85,
+  bakeResolution: 2048,
   terrainNormalEnabled: true,
-  terrainNormalStrength: 0.72,
-  detailNormalStrength: 0.35,
-  macroVariation: 0.26,
+  terrainNormalStrength: 1.15,
+  detailNormalStrength: 1.05,
+  macroVariation: 0.16,
 };
 
 export function downloadBlob(blob: Blob, filename: string) {
@@ -242,8 +246,8 @@ export async function createGLB(terrain: TerrainData, settings: ExportSettings) 
     color: bakedTexture || settings.heightColors ? 0xffffff : 0x8a8d84,
     map: bakedTexture,
     normalMap,
-    normalScale: normalMap ? new THREE.Vector2(1, 1) : undefined,
-    roughness: 0.92,
+    normalScale: normalMap ? new THREE.Vector2(1.35, 1.35) : undefined,
+    roughness: 0.9,
     metalness: 0,
     vertexColors: !bakedTexture && settings.heightColors,
   });

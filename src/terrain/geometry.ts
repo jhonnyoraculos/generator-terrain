@@ -92,6 +92,7 @@ export function createTerrainGeometry(terrain: TerrainData, options: TerrainGeom
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeVertexNormals();
+  geometry.computeTangents();
   geometry.computeBoundingSphere();
 
   if (!options.includeVertexColors) {
