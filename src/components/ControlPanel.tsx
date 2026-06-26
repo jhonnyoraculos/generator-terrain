@@ -786,6 +786,8 @@ function TextureDrop({
           onChange={(event) => {
             onFile(slot, event.target.files?.[0] ?? null);
             event.currentTarget.value = '';
+            event.currentTarget.blur();
+            window.requestAnimationFrame(() => window.scrollTo(0, 0));
           }}
         />
       </label>
