@@ -22,6 +22,15 @@ interface TextureRepeat {
   v: number;
 }
 
+interface PreparedDiffuseTextures {
+  grass: PreparedTexture;
+  dirt: PreparedTexture;
+  rock: PreparedTexture;
+  snow: PreparedTexture;
+}
+
+type TextureRepeatsByLayer = Record<TerrainDiffuseLayerKey | 'detail', TextureRepeat>;
+
 const FALLBACK_COLORS: Record<TerrainDiffuseLayerKey, [number, number, number]> = {
   grass: [88, 136, 76],
   dirt: [121, 101, 72],
@@ -195,7 +204,7 @@ async function createBakedTerrainTextureCanvas(
   settings: TerrainTextureSettings,
   verticalExaggeration: number,
 ) {
-  const size = Math.max(128, Math.round(settings.bakeResolution));
+  const size = getSafeBakeResolution(settings.bakeResolution, 8192);
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -211,85 +220,37 @@ async function createBakedTerrainTextureCanvas(
     prepareTexture(textures.snow, FALLBACK_COLORS.snow),
   ]);
 
+  const preparedTextures: PreparedDiffuseTextures = { grass, dirt, rock, snow };
   const image = context.createImageData(size, size);
   const heightRange = Math.max(0.0001, terrain.stats.heightMax - terrain.stats.heightMin);
-  const grassRepeat = getTextureRepeat(terrain, settings, 'grass');
-  const dirtRepeat = getTextureRepeat(terrain, settings, 'dirt');
-  const rockRepeat = getTextureRepeat(terrain, settings, 'rock');
-  const snowRepeat = getTextureRepeat(terrain, settings, 'snow');
+  const repeats = getTextureRepeats(terrain, settings);
+  const sampleGrid = getDiffuseSampleGrid(size, repeats);
 
   for (let y = 0; y < size; y += 1) {
-    const v = y / Math.max(1, size - 1);
-    const row = Math.round(v * (terrain.resolution - 1));
-
     for (let x = 0; x < size; x += 1) {
-      const u = x / Math.max(1, size - 1);
-      const col = Math.round(u * (terrain.resolution - 1));
-      const height = terrain.heights[row * terrain.resolution + col];
-      const height01 = clamp((height - terrain.stats.heightMin) / heightRange, 0, 1);
-      const normal = computeTerrainNormal(terrain, row, col, verticalExaggeration);
-      const slope = clamp(1 - normal.y, 0, 1);
-
-      const weights = getTextureWeights(height01, slope);
-      const sampledGrass = sampleLayerTexture(
-        grass,
-        u,
-        v,
-        height01,
-        slope,
-        grassRepeat,
-        'grass',
-      );
-      const sampledDirt = sampleLayerTexture(
-        dirt,
-        u,
-        v,
-        height01,
-        slope,
-        dirtRepeat,
-        'dirt',
-      );
-      const sampledRock = sampleLayerTexture(
-        rock,
-        u,
-        v,
-        height01,
-        slope,
-        rockRepeat,
-        'rock',
-      );
-      const sampledSnow = sampleLayerTexture(
-        snow,
-        u,
-        v,
-        height01,
-        slope,
-        snowRepeat,
-        'snow',
-      );
-      const textured = applyTerrainColorVariation(
-        mixFour(sampledGrass, sampledDirt, sampledRock, sampledSnow, weights),
-        u,
-        v,
-        height01,
-        slope,
-        settings.macroVariation,
-      );
-      const heightColor = getHeightColor(height01, slope).map((value) => value * 255) as [
-        number,
-        number,
-        number,
-      ];
-      const textureInfluence = clamp(
-        settings.blendStrength * (0.82 + weights.rock * 0.12 + weights.dirt * 0.06),
-        0,
-        1,
-      );
-      const finalColor = [
-        lerp(heightColor[0], textured[0], textureInfluence),
-        lerp(heightColor[1], textured[1], textureInfluence),
-        lerp(heightColor[2], textured[2], textureInfluence),
-      ];
+      const finalColor = sampleGrid === 1
+        ? sampleTerrainDiffuseColor(
+            terrain,
+            preparedTextures,
+            repeats,
+            x / Math.max(1, size - 1),
+            y / Math.max(1, size - 1),
+            verticalExaggeration,
+            heightRange,
+            settings,
+          )
+        : sampleTerrainDiffuseColorSupersampled(
+            terrain,
+            preparedTextures,
+            repeats,
+            x,
+            y,
+            size,
+            sampleGrid,
+            verticalExaggeration,
+            heightRange,
+            settings,
+          );
 
       const offset = (y * size + x) * 4;
       image.data[offset] = finalColor[0];
@@ -301,6 +262,137 @@ async function createBakedTerrainTextureCanvas(
 
   context.putImageData(image, 0, 0);
   return canvas;
+}
+
+function sampleTerrainDiffuseColorSupersampled(
+  terrain: TerrainData,
+  textures: PreparedDiffuseTextures,
+  repeats: TextureRepeatsByLayer,
+  x: number,
+  y: number,
+  size: number,
+  sampleGrid: number,
+  verticalExaggeration: number,
+  heightRange: number,
+  settings: TerrainTextureSettings,
+) {
+  const totalSamples = sampleGrid * sampleGrid;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+
+  for (let sampleY = 0; sampleY < sampleGrid; sampleY += 1) {
+    for (let sampleX = 0; sampleX < sampleGrid; sampleX += 1) {
+      const u = clamp(
+        (x + (sampleX + 0.5) / sampleGrid - 0.5) / Math.max(1, size - 1),
+        0,
+        1,
+      );
+      const v = clamp(
+        (y + (sampleY + 0.5) / sampleGrid - 0.5) / Math.max(1, size - 1),
+        0,
+        1,
+      );
+      const color = sampleTerrainDiffuseColor(
+        terrain,
+        textures,
+        repeats,
+        u,
+        v,
+        verticalExaggeration,
+        heightRange,
+        settings,
+      );
+      red += color[0];
+      green += color[1];
+      blue += color[2];
+    }
+  }
+
+  return [red / totalSamples, green / totalSamples, blue / totalSamples] as [
+    number,
+    number,
+    number,
+  ];
+}
+
+function sampleTerrainDiffuseColor(
+  terrain: TerrainData,
+  textures: PreparedDiffuseTextures,
+  repeats: TextureRepeatsByLayer,
+  u: number,
+  v: number,
+  verticalExaggeration: number,
+  heightRange: number,
+  settings: TerrainTextureSettings,
+) {
+  const row = Math.round(v * (terrain.resolution - 1));
+  const col = Math.round(u * (terrain.resolution - 1));
+  const height = terrain.heights[row * terrain.resolution + col];
+  const height01 = clamp((height - terrain.stats.heightMin) / heightRange, 0, 1);
+  const normal = computeTerrainNormal(terrain, row, col, verticalExaggeration);
+  const slope = clamp(1 - normal.y, 0, 1);
+  const weights = getTextureWeights(height01, slope);
+  const sampledGrass = sampleLayerTexture(
+    textures.grass,
+    u,
+    v,
+    height01,
+    slope,
+    repeats.grass,
+    'grass',
+  );
+  const sampledDirt = sampleLayerTexture(
+    textures.dirt,
+    u,
+    v,
+    height01,
+    slope,
+    repeats.dirt,
+    'dirt',
+  );
+  const sampledRock = sampleLayerTexture(
+    textures.rock,
+    u,
+    v,
+    height01,
+    slope,
+    repeats.rock,
+    'rock',
+  );
+  const sampledSnow = sampleLayerTexture(
+    textures.snow,
+    u,
+    v,
+    height01,
+    slope,
+    repeats.snow,
+    'snow',
+  );
+  const textured = applyTerrainColorVariation(
+    mixFour(sampledGrass, sampledDirt, sampledRock, sampledSnow, weights),
+    u,
+    v,
+    height01,
+    slope,
+    settings.macroVariation,
+  );
+  const heightColor = getHeightColor(height01, slope).map((value) => value * 255) as [
+    number,
+    number,
+    number,
+  ];
+  const textureInfluence = clamp(
+    settings.blendStrength * (0.82 + weights.rock * 0.12 + weights.dirt * 0.06),
+    0,
+    1,
+  );
+
+  return [
+    lerp(heightColor[0], textured[0], textureInfluence),
+    lerp(heightColor[1], textured[1], textureInfluence),
+    lerp(heightColor[2], textured[2], textureInfluence),
+  ] as [number, number, number];
 }
 
 function getTextureWeights(height: number, slope: number) {
@@ -335,8 +427,8 @@ async function createCombinedNormalCanvas(
 ) {
   const requestedSize = Math.round(settings.bakeResolution);
   const size = forceTerrainNormal
-    ? Math.max(128, Math.min(4096, requestedSize))
-    : Math.max(128, Math.min(1024, requestedSize));
+    ? getSafeBakeResolution(requestedSize, 8192)
+    : getSafeBakeResolution(requestedSize, 2048);
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -353,11 +445,7 @@ async function createCombinedNormalCanvas(
     prepareNormalTexture(textures.detailNormal),
   ]);
   const image = context.createImageData(size, size);
-  const grassRepeat = getTextureRepeat(terrain, settings, 'grass');
-  const dirtRepeat = getTextureRepeat(terrain, settings, 'dirt');
-  const rockRepeat = getTextureRepeat(terrain, settings, 'rock');
-  const snowRepeat = getTextureRepeat(terrain, settings, 'snow');
-  const detailRepeat = getTextureRepeat(terrain, settings, 'detail');
+  const repeats = getTextureRepeats(terrain, settings);
   const terrainStrength = forceTerrainNormal || settings.terrainNormalEnabled
     ? clamp(settings.terrainNormalStrength, 0, 3)
     : 0;
@@ -383,10 +471,10 @@ async function createCombinedNormalCanvas(
 
       if (textureNormalStrength > 0) {
         const blendedLayerNormal = mixFourNormals(
-          sampleNormalTexture(grassNormal, u, v, grassRepeat),
-          sampleNormalTexture(dirtNormal, u, v, dirtRepeat),
-          sampleNormalTexture(rockNormal, u, v, rockRepeat),
-          sampleNormalTexture(snowNormal, u, v, snowRepeat),
+          sampleNormalTexture(grassNormal, u, v, repeats.grass),
+          sampleNormalTexture(dirtNormal, u, v, repeats.dirt),
+          sampleNormalTexture(rockNormal, u, v, repeats.rock),
+          sampleNormalTexture(snowNormal, u, v, repeats.snow),
           weights,
         );
         nx += blendedLayerNormal[0] * textureNormalStrength * 1.08;
@@ -395,7 +483,7 @@ async function createCombinedNormalCanvas(
       }
 
       if (detailNormal && textureNormalStrength > 0) {
-        const detail = sampleNormalTexture(detailNormal, u, v, detailRepeat);
+        const detail = sampleNormalTexture(detailNormal, u, v, repeats.detail);
         nx += detail[0] * textureNormalStrength;
         ny += detail[1] * textureNormalStrength;
         nz += (detail[2] - 1) * textureNormalStrength * 0.72;
@@ -627,6 +715,33 @@ function getTextureRepeat(
     u: baseRepeat * (terrain.width / maxSide) * repeatX * layerTiling,
     v: baseRepeat * (terrain.depth / maxSide) * repeatZ * layerTiling,
   };
+}
+
+function getTextureRepeats(
+  terrain: TerrainData,
+  settings: TerrainTextureSettings,
+): TextureRepeatsByLayer {
+  return {
+    grass: getTextureRepeat(terrain, settings, 'grass'),
+    dirt: getTextureRepeat(terrain, settings, 'dirt'),
+    rock: getTextureRepeat(terrain, settings, 'rock'),
+    snow: getTextureRepeat(terrain, settings, 'snow'),
+    detail: getTextureRepeat(terrain, settings, 'detail'),
+  };
+}
+
+function getDiffuseSampleGrid(size: number, repeats: TextureRepeatsByLayer) {
+  const maxRepeat = getMaxTextureRepeat([repeats.grass, repeats.dirt, repeats.rock, repeats.snow]);
+  const pixelsPerRepeat = size / Math.max(1, maxRepeat);
+  return size <= 2048 && pixelsPerRepeat < 56 ? 2 : 1;
+}
+
+function getMaxTextureRepeat(repeats: TextureRepeat[]) {
+  return repeats.reduce((max, repeat) => Math.max(max, repeat.u, repeat.v), 1);
+}
+
+function getSafeBakeResolution(resolution: number, maxResolution: number) {
+  return Math.max(128, Math.min(maxResolution, Math.round(resolution)));
 }
 
 function getLayerTiling(

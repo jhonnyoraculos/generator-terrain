@@ -188,6 +188,7 @@ export function ControlPanel({
     onLodSettingsChange({ ...lodSettings, levels: nextLevels });
   };
   const exportDisabled = !stats || generating || Boolean(exporting);
+  const bakeQuality = estimateTextureBakeQuality(params, textureSettings);
 
   return (
     <aside className="sidebar">
@@ -519,12 +520,28 @@ export function ControlPanel({
             <SliderField
               label="Resolucao do bake"
               min={512}
-              max={4096}
+              max={8192}
               step={512}
               value={textureSettings.bakeResolution}
               integer
               onChange={(value) => updateTextureSettings('bakeResolution', value)}
             />
+            <div className={`texture-quality texture-quality--${bakeQuality.status}`}>
+              <div>
+                <strong>Qualidade do bake</strong>
+                <span>{bakeQuality.pixelsPerRepeat} px / repeticao</span>
+              </div>
+              <p>{bakeQuality.message}</p>
+              {bakeQuality.recommendedResolution > textureSettings.bakeResolution ? (
+                <button
+                  onClick={() =>
+                    updateTextureSettings('bakeResolution', bakeQuality.recommendedResolution)
+                  }
+                >
+                  Usar {bakeQuality.recommendedResolution}px
+                </button>
+              ) : null}
+            </div>
             <SliderField
               label="Variacao macro"
               min={0}
@@ -668,6 +685,62 @@ export function ControlPanel({
       ) : null}
     </aside>
   );
+}
+
+function estimateTextureBakeQuality(
+  params: TerrainParams,
+  settings: TerrainTextureSettings,
+) {
+  const baseRepeat = Math.max(0.1, settings.repeat);
+  const repeatX = Math.max(0.1, settings.repeatX ?? 1);
+  const repeatZ = Math.max(0.1, settings.repeatZ ?? 1);
+  const maxSide = Math.max(1, params.width, params.depth);
+  const aspectX = params.width / maxSide;
+  const aspectZ = params.depth / maxSide;
+  const tilings = [
+    Math.max(0.05, settings.grassTiling ?? 1),
+    Math.max(0.05, settings.dirtTiling ?? 1),
+    Math.max(0.05, settings.rockTiling ?? 1),
+    Math.max(0.05, settings.snowTiling ?? 1),
+  ];
+  const maxRepeat = tilings.reduce(
+    (max, tiling) =>
+      Math.max(max, baseRepeat * aspectX * repeatX * tiling, baseRepeat * aspectZ * repeatZ * tiling),
+    1,
+  );
+  const effectiveBakeResolution = Math.max(128, Math.min(8192, settings.bakeResolution));
+  const pixelsPerRepeat = Math.max(
+    1,
+    Math.floor(effectiveBakeResolution / Math.max(1, maxRepeat)),
+  );
+  const recommendedResolution = clampBakeResolution(Math.ceil((maxRepeat * 96) / 512) * 512);
+
+  if (pixelsPerRepeat < 48) {
+    return {
+      status: 'low',
+      pixelsPerRepeat,
+      recommendedResolution,
+      message: 'Baixa: o tiling esta alto demais para a resolucao atual.',
+    };
+  }
+  if (pixelsPerRepeat < 96) {
+    return {
+      status: 'medium',
+      pixelsPerRepeat,
+      recommendedResolution,
+      message: 'Media: use um bake maior para close-up.',
+    };
+  }
+  return {
+    status: 'high',
+    pixelsPerRepeat,
+    recommendedResolution,
+    message: 'Alta: boa densidade para textura unica.',
+  };
+}
+
+function clampBakeResolution(resolution: number) {
+  return Math.max(512, Math.min(8192, Math.round(resolution)));
 }
 
 function LodLevelEditor({

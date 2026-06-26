@@ -394,6 +394,61 @@ input[type="range"] {
   gap: 0.58rem;
 }
 
+.texture-quality {
+  display: grid;
+  gap: 0.48rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11140f;
+  padding: 0.62rem;
+}
+
+.texture-quality div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.texture-quality strong {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.texture-quality span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.texture-quality p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.texture-quality button {
+  min-height: 34px;
+  justify-self: start;
+  padding-block: 0.42rem;
+}
+
+.texture-quality--high {
+  border-color: rgb(145 215 101 / 0.34);
+}
+
+.texture-quality--medium {
+  border-color: rgb(215 172 87 / 0.42);
+  background: rgb(215 172 87 / 0.08);
+}
+
+.texture-quality--low {
+  border-color: rgb(240 146 128 / 0.48);
+  background: rgb(240 146 128 / 0.08);
+}
+
 .mask-painter {
   display: grid;
   gap: 0.72rem;

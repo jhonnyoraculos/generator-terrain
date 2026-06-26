@@ -101,6 +101,8 @@ No preview, o normal map geral do terreno e aplicado automaticamente no material
 
 Os controles `Repeticao geral`, `Tiling X` e `Tiling Z` ajustam a escala base das texturas no terreno inteiro. Cada camada tambem tem `Tiling da camada`; use isso para deixar grama, terra, pedra e neve com escalas diferentes sem desalinha-las dos seus normal maps. O bake usa repeticao proporcional ao tamanho fisico do terreno para reduzir distorcao em mapas retangulares.
 
+Quando o tiling sobe muito, varias repeticoes precisam caber dentro de um unico `terrain_texture.png`. O painel mostra `Qualidade do bake` em pixels por repeticao e sugere uma resolucao maior quando a textura final comeca a perder detalhe. Para close-up com tiling alto, use bake `4096` ou `8192`, sabendo que isso aumenta tempo de exportacao e uso de memoria.
+
 O ZIP tambem inclui `terrain.mtl`, que referencia:
 
 - `terrain_texture.png` como textura difusa.
